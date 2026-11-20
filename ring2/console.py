@@ -10,6 +10,7 @@ script, nothing stored. To view it from another machine, forward the port
 """
 import argparse
 import html
+import re
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -37,10 +38,10 @@ def page(cfg, refresh=5):
                         f'{alive(row["session"])}{alive(row["loop"])}<td>{html.escape(" ".join(row.get("tasks", [])) or "-")}</td>'
                         f'<td>{age}</td><td>{app.waiting(row)}</td></tr>')
         if cfg.get('ring_url') and cfg.get('channels'):
-            for message in bus.events(cfg, 0, wait=0)[-20:]:
+            for message in reversed(bus.events(cfg, 0, wait=0)[-20:]):
                 sender, separator, text = message['message'].partition(': ')
-                if not separator:
-                    sender, text = '', sender
+                if not separator or not re.fullmatch(r'[A-Za-z0-9_-]+', sender):
+                    sender, text = '', message['message']
                 messages.append(f'<tr><td>{message["sequence"]}</td><td>{html.escape(message["created_at"])}</td>'
                                 f'<td>{html.escape(message["channel"])}</td><td>{html.escape(sender)}</td><td>{html.escape(text)}</td></tr>')
     except (OSError, SystemExit) as exc:

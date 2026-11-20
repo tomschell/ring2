@@ -13,10 +13,31 @@ import sys
 import time
 import unittest
 import urllib.request
+from unittest.mock import patch
+
+from ring2 import console
 
 from tests.lab import HAVE_TOOLS, Lab, wait
 
 ROLE = 'watched'
+
+
+class ConsoleMessagesTest(unittest.TestCase):
+    def test_newest_twenty_and_single_label_senders(self):
+        messages = [{'sequence': number, 'created_at': 'now', 'channel': 'team',
+                     'message': f'agent-_{number}: message {number}'} for number in range(1, 23)]
+        messages[-1]['message'] = '@coord controller: two tasks are queued'
+        messages[-2]['message'] = 'no sender here'
+        messages[-3]['message'] = 'bad.label: keep the whole text'
+        with patch.object(console.app, 'status', return_value=[]), patch.object(console.bus, 'events', return_value=messages):
+            page = console.page({'ring_url': 'unused', 'channels': ['team']})
+        rows = re.findall(r'<tr><td>(.*?)</tr>', page)
+        cells = [re.findall(r'<td>(.*?)</td>', '<td>' + row) for row in rows]
+        self.assertEqual([int(row[0]) for row in cells], list(range(22, 2, -1)))
+        self.assertEqual(cells[0][3:], ['', '@coord controller: two tasks are queued'])
+        self.assertEqual(cells[1][3:], ['', 'no sender here'])
+        self.assertEqual(cells[2][3:], ['', 'bad.label: keep the whole text'])
+        self.assertEqual(cells[3][3:], ['agent-_19', 'message 19'])
 
 
 @unittest.skipUnless(HAVE_TOOLS, 'needs codex and bd')

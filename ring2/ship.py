@@ -76,10 +76,16 @@ def test(settings, commit, command, evidence, author):
     return code == 0
 
 
+TEST_LINE = re.compile(r'TEST (PASS|FAIL \(exit -?\d+\)) ([0-9a-f]{40})(?![0-9a-f])')
+PASS_LINE = re.compile(r'PASS ([0-9a-f]{40})(?![0-9a-f])')
+
+
 def tested(commit, evidence):
-    """The newest test result for this commit decides."""
-    results = [text for _, text in evidence.read() if text.startswith('TEST ') and commit in text]
-    return bool(results) and results[-1].startswith('TEST PASS ')
+    """The newest test result for this commit decides. A result is a line that
+    starts `TEST PASS <commit>` or `TEST FAIL (exit N) <commit>`."""
+    results = [found.group(1) for found in (TEST_LINE.match(text) for _, text in evidence.read())
+               if found and found.group(2) == commit]
+    return bool(results) and results[-1] == 'PASS'
 
 
 def review_pass(settings, commit, evidence, author):
@@ -89,9 +95,11 @@ def review_pass(settings, commit, evidence, author):
 
 
 def has_pass(settings, commit, evidence):
-    """A reviewer's line with PASS and the full commit (a test result is not a review)."""
-    return any(author in (settings.get('reviewers') or []) and commit in text
-               and re.search(r'\bPASS\b', text) and not text.startswith('TEST ')
+    """A reviewer's line that starts `PASS <commit>`; prose may follow. A PASS
+    mentioned anywhere else in a comment is not a PASS, and a later objection
+    does not take a PASS back."""
+    reviewers = settings.get('reviewers') or []
+    return any(author in reviewers and (found := PASS_LINE.match(text)) and found.group(1) == commit
                for author, text in evidence.read())
 
 

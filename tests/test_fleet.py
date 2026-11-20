@@ -29,7 +29,8 @@ def answer_ready(number, request):
 class FleetTest(unittest.TestCase):
     def test_fleet_start_and_stop(self):
         lab = Lab({'alpha': ('implementer', 'brief'), 'taken': ('implementer', 'brief'),
-                   'mute': ('implementer', 'brief'), 'beta': ('reviewer', 'brief')},
+                   'mute': ('implementer', 'brief'), 'beta': ('reviewer', 'brief'),
+                   'outside': ('controller', 'unused', {'provider': 'external'})},
                   ready_seconds=20)
         self.addCleanup(lab.close)
         lab.model.rules.append(('fleet start: post', 'fn', answer_ready))
@@ -50,6 +51,8 @@ class FleetTest(unittest.TestCase):
             self.assertTrue(state['running'])
             self.assertIn(f'{label}: READY {label} {state["state"]["token"]}', bus)
         self.assertIn(f'mute: READY mute {STALE}', bus)
+        self.assertFalse(any('@outside fleet start:' in message for message in bus))
+        self.assertFalse((lab.root / 'state/outside.json').exists())
         self.assertTrue(posted)
 
         lab.ring2('fleet', 'stop')

@@ -5,7 +5,7 @@ Sessions:  start | stop | restart | status          (the --as role)
 Tasks:     task | claim | give-back TASK
            review-pass TASK COMMIT | test TASK COMMIT COMMAND
            publish TASK COMMIT [--close] | close TASK [COMMIT] [--reason TEXT] [--confirm]
-Bus:       post CHANNEL TEXT
+Bus:       post CHANNEL TEXT | listen
 
 One JSON config file serves every module; each command needs only its own
 module's settings (a task command needs tracker_dir and nothing about sessions).
@@ -117,8 +117,10 @@ def adapter(cfg, label):
 def start(cfg, label):
     """Start the role's session, tell it its task, and attach delivery from the bus."""
     entry = role(cfg, label)
-    need(entry, f'role {label}', 'role', 'provider', 'model', 'brief')
     provider = adapter(cfg, label)
+    if not hasattr(provider, 'run'):
+        return
+    need(entry, f'role {label}', 'role', 'provider', 'model', 'brief')
     where = workdir(cfg, label)
     if cfg.get('home') and not entry.get('workdir'):
         need(cfg, 'app (home)', 'origin')
@@ -149,8 +151,10 @@ def start(cfg, label):
 
 
 def stop(cfg, label):
-    role(cfg, label)
-    print(f'stopped {label}' if session.stop(cfg, label, adapter(cfg, label).KIND) else f'{label} is not running')
+    provider = adapter(cfg, label)
+    if not hasattr(provider, 'run'):
+        return
+    print(f'stopped {label}' if session.stop(cfg, label, provider.KIND) else f'{label} is not running')
 
 
 def status(cfg):
@@ -171,7 +175,7 @@ def status(cfg):
         if cfg.get('tracker_dir'):
             row['tasks'] = [issue['id'] for issue in tasks.mine(cfg, label)]
         if following:
-            row['delivered'] = int(cursor.read_text()) if cursor.exists() else None
+            row.setdefault('delivered', int(cursor.read_text()) if cursor.exists() else None)
             row['addressed'] = max((message['sequence'] for message in retained
                                     if bus.addressed(label, message['message'])), default=0)
         rows.append(row)
@@ -205,7 +209,9 @@ def fleet_start(cfg):
     tokens, channel = {}, cfg['channels'][0]
     for label in cfg['roles']:
         try:
-            tokens[label] = start(cfg, label)['token']
+            state = start(cfg, label)
+            if state is not None:
+                tokens[label] = state['token']
         except SystemExit as exc:
             print(f'{label}: did not start ({exc})')
     after = bus.end(cfg)
@@ -221,7 +227,8 @@ def fleet_start(cfg):
                     del waiting[label]
     ready = [label for label in cfg['roles'] if label in tokens and label not in waiting]
     for label in cfg['roles']:
-        print(f'{label}: {"READY" if label in ready else "unavailable"}')
+        if hasattr(adapter(cfg, label), 'run'):
+            print(f'{label}: {"READY" if label in ready else "unavailable"}')
     return ready
 
 
@@ -248,10 +255,15 @@ def main(argv=None):
     opts = parser.parse_args(argv)
     cfg, label, command, args = load(opts.config), opts.label, opts.command, opts.args
     if command == 'fleet' and args == ['start']:
-        return 0 if len(fleet_start(cfg)) == len(cfg['roles']) else 1
+        return 0 if len(fleet_start(cfg)) == sum(hasattr(adapter(cfg, name), 'run') for name in cfg['roles']) else 1
     elif command == 'fleet' and args == ['stop']:
         for name in cfg.get('roles', {}):
             stop(cfg, name)
+    elif command == 'listen':
+        listener = getattr(adapter(cfg, label), 'listen', None)
+        if listener is None:
+            raise Refused('ring2: this provider does not support listen')
+        listener(cfg, label)
     elif command == 'post':
         if not label:
             raise Refused('ring2: name the sender with --as')

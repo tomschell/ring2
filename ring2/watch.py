@@ -33,6 +33,8 @@ def once(cfg, memory, backoff, now=None, log=print):
     acted = []
     for row in app.status(cfg):
         label = row['label']
+        if not hasattr(app.adapter(cfg, label), 'run'):
+            continue
         if not due(row):
             if row['loop'] and now >= memory.get(label, (0, 0))[0]:
                 memory.pop(label, None)  # healthy past its quiet period: the next failure starts from the short delay

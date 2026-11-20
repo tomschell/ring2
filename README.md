@@ -24,13 +24,15 @@ Three kinds of file. The rule between them is what keeps it small.
 | Kind | Files | May depend on | Counts against the core budget |
 |---|---|---|---|
 | **Core** | `bus` (post and read messages), `tasks` (queue, atomic claim, close; needs `bd`), `ship` (test result, reviewer PASS, fast-forward publish; needs `git`), `delivery` (each message into a session once), `session` (shared session lifecycle), `app` (all of it from one config file; `status`) | the core only | yes (3,000 lines) |
-| **Adapter** | one per model harness: `providers/codex.py` (Codex; needs `codex`), `providers/claude.py` (Claude Code; needs `claude`). | the core | no |
+| **Adapter** | one per model harness: `providers/codex.py` (Codex; needs `codex`), `providers/claude.py` (Claude Code; needs `claude`), `providers/external.py` (a person or outside session). | the core | no |
 | **Optional** | `busd` (the bus server, one SQLite file), `watch` (restarts a role whose delivery died while a message waits), `console` (one read-only page) | the core | no |
 
 Adapters live under `ring2/providers/` and load only when a role needs them. Shared start locks,
 tokens, handles, spec/log files, runner launch and process cleanup live in `ring2/session.py`.
-Each adapter supplies `KIND` (the existing handle kind), `WORD` (the started-line provider word),
-`run(spec_path, token)` and `status(settings, name)`. Status supplies `session`, `loop`, optional
+Each adapter supplies `status(settings, name)`. Managed adapters also supply `KIND` (the existing
+handle kind), `WORD` (the started-line provider word), and `run(spec_path, token)`. Providers without
+a runner are left alone by lifecycle commands; they can supply `listen(settings, name)` instead.
+Status supplies `session`, `loop`, optional
 `busy` (absent when unknown), and optional `active`/`active_source`. Adding an adapter needs no
 core edit; removing one leaves other providers usable. The standalone session entry point is now
 `python3 -m ring2.providers.codex --config FILE start|stop|restart|status NAME`.
@@ -162,6 +164,13 @@ and ignores user/project settings. It ends the role if startup reports an MCP se
 checks. Status JSON includes `busy`. It waits for the CLI's
 user-message acknowledgment before advancing delivery. `claude attach` only finds background
 jobs, not these stream-driven sessions: stop the role before using `claude --resume <thread>`.
+
+A role with `"provider": "external"` represents a person or an outside session and needs no model,
+brief or working directory. Start its listener with `ring2 --as <label> listen` (and `--config`
+if needed). It prints one line per addressed message and keeps the role's normal delivery cursor,
+including messages waiting before the first listen. Status and the console show whether it is
+listening and whether a message waits. Stop the listener itself to leave; start, stop, restart,
+fleet and watch leave it alone.
 
 ## Tests
 

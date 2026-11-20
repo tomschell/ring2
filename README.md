@@ -172,6 +172,7 @@ and takes several minutes.
 
 ## Known gaps
 
+- With a viewer attached to a role (`codex resume <thread> --remote <endpoint>`), typed input submitted while a turn started by a channel message is running is added by Codex to that same turn. In the real-provider trial, the model answered only the typed input and never acted on the channel message in 3 of 3 tries; ring2 does not deliver the message again because its turn had started. Watching without typing, and typing while the role is idle, were unaffected.
 - Never run against a real provider: sign-in, a Codex home shared by several roles, long real turns.
 - Only Codex. A Claude session needs its own session and delivery classes.
 - `watch` handles one case (delivery dead, message waiting) and was run against a killed headless runner only. A dead tmux delivery loop takes the same path but was not run. Nothing restarts watch itself.

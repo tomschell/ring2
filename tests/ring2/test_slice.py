@@ -77,7 +77,7 @@ class SliceTest(unittest.TestCase):
         wait('the held turn to start', lambda: lab.requests_with('HOLD-THIS-TURN'))
         lab.post('@other-role NOT-FOR-EXP-ROLE')
         sequence = lab.post(f'@{ROLE} SECOND-MESSAGE sent while the turn is active')
-        wait('the follower to hand the message to Codex', lambda: f'queued {sequence}' in self.follower())
+        wait('the follower to hand the message to Codex', lambda: f'accepted {sequence}' in self.follower())
         time.sleep(4)  # ample time for a wrong delivery to show up
         rollout = self.rollout(self.first)
         self.assertEqual(lab.requests_with('SECOND-MESSAGE'), [], 'delivered into the active turn')
@@ -173,7 +173,7 @@ class SliceTest(unittest.TestCase):
         lab.post(f'@{ROLE} HOLD-UNTIL-RESTART (this turn never ends in the old session)')
         wait('the held turn to start', lambda: lab.requests_with('HOLD-UNTIL-RESTART'))
         sequence = lab.post(f'@{ROLE} QUEUED-WHEN-THE-ROLE-RESTARTED')
-        wait('the follower to hand the message to Codex', lambda: f'queued {sequence}' in self.follower())
+        wait('the follower to hand the message to Codex', lambda: f'accepted {sequence}' in self.follower())
         time.sleep(2)
         self.assertLess(self.cursor(), sequence)
         self.lab.ring2('restart', label=ROLE)

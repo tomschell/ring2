@@ -88,9 +88,7 @@ class Lab:
 
         self.model = MockModel()
         (self.home / 'codex' / 'config.toml').write_text(self.model.codex_config(self.work.values(), codex_extra))
-        with socket.socket() as probe:
-            probe.bind(('127.0.0.1', 0))
-            ring_port = probe.getsockname()[1]
+        ring_port = self.free_port()
         self.ringd = subprocess.Popen([str(REPO / 'bin' / 'ringd'), '--port', str(ring_port),
                                        '--db', str(root / 'ring.db')], env=self.env,
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -102,6 +100,12 @@ class Lab:
             'env': {'CODEX_HOME': str(self.home / 'codex')}, **settings}
         self.config = self.write_config('ring2.json')
         wait('ringd', lambda: self.ring2('post', 'exp', 'bus is up', check=False).returncode == 0)
+
+    @staticmethod
+    def free_port():
+        with socket.socket() as probe:
+            probe.bind(('127.0.0.1', 0))
+            return probe.getsockname()[1]
 
     def write_config(self, name, **changes):
         path = self.root / name

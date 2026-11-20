@@ -84,7 +84,7 @@ class TasksTest(unittest.TestCase):
         # Three tasks: three winners with different tasks, three EMPTY; a loser moved on to the next task.
         tasks = [self.queued(f'task {n} of three') for n in range(3)]
         results = self.race([self.lab.ring2_argv('claim', label=label) for label in RACERS])
-        won = {label: out.split()[0] for label, (out, _, _) in zip(RACERS, results) if out.strip() != 'EMPTY'}
+        won = {label: out.split()[1] for label, (out, _, _) in zip(RACERS, results) if out.strip() != 'EMPTY'}
         self.assertEqual(sorted(won.values()), sorted(tasks), results)
         for label, task in won.items():
             self.assertEqual(self.holder(task), ('in_progress', label))
@@ -158,7 +158,7 @@ class TasksTest(unittest.TestCase):
 
         # Close: the commit must be on origin main; owes:* labels stop it until --confirm.
         unpublished = lab.commit('impl', 'c.txt', 'c\n')
-        self.assertIn('is not on origin main', lab.ring2('close', task_b, unpublished, label='impl', check=False).stderr)
+        self.assertIn('is not on the published branch', lab.ring2('close', task_b, unpublished, label='impl', check=False).stderr)
         self.assertIn('name the published commit', lab.ring2('close', task_b, label='impl', check=False).stderr)
         lab.bd('label', 'add', task_b, 'owes:docs')
         owes = lab.ring2('close', task_b, commit_b, label='impl', check=False)
@@ -208,10 +208,19 @@ class TasksTest(unittest.TestCase):
         self.assertEqual(lab.origin_main(), commit)
         self.assertEqual(lab.ring2('publish', mine, commit, label='impl').stdout.strip(), 'already published')
 
+        # Publish then close in one command: the close is refused, the publish stands and is not repeated.
+        (lab.shims / 'refuse-bd').write_text('close')
+        partly = lab.ring2('publish', mine, commit, '--close', label='impl', check=False)
+        self.assertEqual(partly.returncode, 1)
+        self.assertIn('published, task still open', partly.stdout)
+        (lab.shims / 'refuse-bd').unlink()
+        self.assertEqual(lab.issue(mine)['status'], 'in_progress')
+
         # Give-back and close, the same way.
         lab.lose_reply('bd', 'close')
         self.assert_unconfirmed(lab.ring2('close', mine, commit, label='impl', check=False))
-        self.assertEqual(lab.ring2('close', mine, commit, label='impl').stdout.strip(), 'already closed')
+        self.assertEqual(lab.ring2('publish', mine, commit, '--close', label='impl').stdout.split('\n')[:2],
+                         ['already published', 'already closed'])
         self.assertIn(other, lab.ring2('claim', label='impl').stdout)
         lab.lose_reply('bd', 'unclaim')
         self.assert_unconfirmed(lab.ring2('give-back', other, label='impl', check=False))

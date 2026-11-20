@@ -12,8 +12,6 @@ from tests.ring2.lab import HAVE_TOOLS, REPO, Lab
 from tests.ring2.mock_model import MockModel
 
 STALE = '0' * 32
-# Codex's default sandbox denies a session's commands the network, loopback included.
-NETWORK = 'sandbox_mode="workspace-write"\n[sandbox_workspace_write]\nnetwork_access=true\n'
 
 
 def answer_ready(number, request):
@@ -32,7 +30,7 @@ class FleetTest(unittest.TestCase):
     def test_fleet_start_and_stop(self):
         lab = Lab({'alpha': ('implementer', 'brief'), 'taken': ('implementer', 'brief'),
                    'mute': ('implementer', 'brief'), 'beta': ('reviewer', 'brief')},
-                  codex_extra=NETWORK, ready_seconds=20)
+                  ready_seconds=20)
         self.addCleanup(lab.close)
         lab.model.rules.append(('fleet start: post', 'fn', answer_ready))
         lab.tmux('new-session', '-d', '-s', 'ring2-taken', 'sleep 600')  # this role cannot start

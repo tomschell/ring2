@@ -1,87 +1,78 @@
-"""The Ring bus over HTTP, and the follower that hands a role its messages.
+"""Bus: post a message, watch for messages by @label. Talks HTTP to a Ring server.
 
-Delivery uses `codex queue`: Codex holds a queued message while a turn is
-active and starts a turn with it once the thread is idle.
+Settings: ring_url, channels.
+`post` returning means the server stored the message (it has a sequence); it
+says nothing about anyone having read it. Messages are coordination between
+sessions, never authority to run a command.
 
-The saved cursor only passes a message once its turn shows in the session's
-rollout file. A successor's follower starts from that cursor, so a message
-still waiting in the old session's queue is queued again for the new one.
-A message can therefore arrive twice; it is not lost.
+  python3 -m ring2.bus --url URL --channel NAME post TEXT
+  python3 -m ring2.bus --url URL --channel NAME watch --as LABEL
 """
+import argparse
 import json
 import re
-import subprocess
-import time
 import urllib.parse
 import urllib.request
-from pathlib import Path
 
-from ring2 import config
+from ring2 import need
 
 
-def post(cfg, channel, text):
+def post(settings, channel, text):
+    need(settings, 'bus', 'ring_url')
     request = urllib.request.Request(
-        f'{cfg["ring_url"]}/channels/{urllib.parse.quote(channel, safe="")}',
+        f'{settings["ring_url"]}/channels/{urllib.parse.quote(channel, safe="")}',
         data=json.dumps({'message': text}).encode(), headers={'Content-Type': 'application/json'})
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.load(response)['message']
 
 
-def events(cfg, after, wait=25):
+def events(settings, after, wait=25):
+    """Messages on the channels with a sequence above `after`, waiting up to `wait` seconds for one."""
+    need(settings, 'bus', 'ring_url', 'channels')
     query = urllib.parse.urlencode(
-        [('channel', channel) for channel in cfg['channels']] + [('after', after), ('wait', wait)])
-    with urllib.request.urlopen(f'{cfg["ring_url"]}/events?{query}', timeout=wait + 30) as response:
+        [('channel', channel) for channel in settings['channels']] + [('after', after), ('wait', wait)])
+    with urllib.request.urlopen(f'{settings["ring_url"]}/events?{query}', timeout=wait + 30) as response:
         return json.load(response)['messages']
 
 
-def end(cfg):
-    """The newest sequence on the configured channels (0 when empty)."""
-    return max((message['sequence'] for message in events(cfg, 0, wait=0)), default=0)
+def end(settings):
+    """The newest sequence on the channels (0 when empty)."""
+    return max((message['sequence'] for message in events(settings, 0, wait=0)), default=0)
 
 
 def addressed(label, text):
     return re.search(r'(?<![\w@])@(?:%s|all)(?![\w-])' % re.escape(label), text) is not None
 
 
-def marker(sequence):
-    return f'Ring message {sequence} on '
-
-
-def follow(cfg, label, token):
-    """Deliver addressed messages after the saved cursor to the session `token` names."""
-    cursor_path = config.state_path(cfg, label, 'cursor')
-    cursor = sent = int(cursor_path.read_text())
-    waiting = []  # sequences handed to Codex whose turn has not started yet
+def watch(settings, label, after=None):
+    """Yield each new message that names @label or @all, from the end of the bus on."""
+    after = end(settings) if after is None else after
     while True:
-        state = config.read_state(cfg, label)
-        if not state or state['token'] != token:
-            return 0  # a successor owns the role now
-        try:
-            messages = events(cfg, sent, wait=2 if waiting else 25)
-        except OSError as exc:
-            print(f'ring2 follow: bus unavailable ({exc}); retrying', flush=True)
-            time.sleep(2)
-            continue
-        for message in messages:
-            sequence = message['sequence']
+        for message in events(settings, after):
+            after = message['sequence']
             if addressed(label, message['message']):
-                text = f'{marker(sequence)}{message["channel"]}:\n{message["message"]}'
-                try:
-                    subprocess.run([cfg['codex'], 'queue', '--remote', state['endpoint'], '--thread',
-                                    state['thread'], '--message', text],
-                                   check=True, capture_output=True, text=True, timeout=60)
-                except (subprocess.SubprocessError, OSError) as exc:
-                    print(f'ring2 follow: codex queue did not take {sequence} ({exc}); retrying', flush=True)
-                    time.sleep(2)
-                    break
-                print(f'ring2 follow: queued {sequence}', flush=True)
-                waiting.append(sequence)
-            sent = sequence
-        if waiting:
-            rollout = Path(state['rollout']).read_text(errors='replace')
-            while waiting and marker(waiting[0]) in rollout:
-                waiting.pop(0)
-        reached = waiting[0] - 1 if waiting else sent
-        if reached != cursor:
-            cursor = reached
-            cursor_path.write_text(str(cursor))
+                yield message
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog='ring2.bus', description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--url')
+    parser.add_argument('--channel', action='append')
+    parser.add_argument('--as', dest='label')
+    parser.add_argument('command', choices=['post', 'watch'])
+    parser.add_argument('text', nargs='?')
+    opts = parser.parse_args(argv)
+    settings = {'ring_url': opts.url, 'channels': opts.channel}
+    need(settings, 'bus', 'ring_url', 'channels')
+    if opts.command == 'post':
+        print(json.dumps(post(settings, opts.channel[0], opts.text)))
+    else:
+        need({'as': opts.label}, 'bus', 'as')
+        for message in watch(settings, opts.label):
+            print(json.dumps(message), flush=True)
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

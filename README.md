@@ -24,7 +24,7 @@ cat > ring2.json <<'EOF'
  "roles":{
   "ann":{"role":"implementer","provider":"codex","model":"<model>"},
   "rae":{"role":"reviewer","provider":"codex","model":"<model>"},
-  "controller":{"provider":"external"}}}
+  "controller":{"role":"controller","provider":"external"}}}
 EOF
 python3 -m ring2 --config ring2.json fleet start
 (cd /path/to/tracker && bd create "First task" --description "What to change" --labels queue)

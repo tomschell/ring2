@@ -1,6 +1,6 @@
 """Each module on its own, with only its own settings and no shared config.
 
-Run: python3 -m unittest tests.ring2.test_standalone -v
+Run: python3 -m unittest tests.test_standalone -v
   tasks     a queue claim with no fleet, bus or sessions (only bd)
   ship      test, PASS and publication with no tracker (only git)
   delivery  attached to a Codex session that ring2 did not start
@@ -15,7 +15,7 @@ import time
 import unittest
 from pathlib import Path
 
-from tests.ring2.lab import CODEX, HAVE_TOOLS, REPO, Lab, wait
+from tests.lab import CODEX, HAVE_TOOLS, REPO, Lab, wait
 
 
 class Plain(unittest.TestCase):

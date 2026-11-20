@@ -1,15 +1,15 @@
 """fleet start and stop: several real Codex sessions, each answering READY on
 the bus by running the ring2 post command from inside its own session.
 
-Run: python3 -m unittest tests.ring2.test_fleet -v
+Run: python3 -m unittest tests.test_fleet -v
 """
 import json
 import re
 import sys
 import unittest
 
-from tests.ring2.lab import HAVE_TOOLS, REPO, Lab
-from tests.ring2.mock_model import MockModel
+from tests.lab import HAVE_TOOLS, REPO, Lab
+from tests.mock_model import MockModel
 
 STALE = '0' * 32
 

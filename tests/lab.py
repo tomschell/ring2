@@ -1,5 +1,5 @@
 """A throwaway lab for ring2 tests: temp root, bare origin with one clone per
-role, a bd tracker, the local Ring server (bin/ringd), a mock model and a
+role, a bd tracker, the local Ring bus server (ring2.busd), a mock model and a
 private tmux socket. Nothing reaches a model provider, the user's Codex home,
 the default tmux server or any tracker outside the temp root.
 
@@ -18,9 +18,9 @@ import time
 import uuid
 from pathlib import Path
 
-from tests.ring2.mock_model import MockModel
+from tests.mock_model import MockModel
 
-REPO = Path(__file__).resolve().parents[2]
+REPO = Path(__file__).resolve().parents[1]
 CODEX = os.environ.get('RING2_CODEX') or shutil.which('codex')
 HAVE_TOOLS = bool(CODEX and shutil.which('tmux') and shutil.which('bd'))
 
@@ -74,7 +74,7 @@ class Lab:
         for name in ('OPENAI_API_KEY', 'RING2_CONFIG', 'RING2_ROLE'):
             self.env.pop(name, None)
         self.socket = f'ring2-test-{uuid.uuid4().hex[:8]}'
-        self.model = self.ringd = self.dolt = self.dolt_data = None
+        self.model = self.busd = self.dolt = self.dolt_data = None
 
         # A bare origin, with one clone per role as its working directory.
         self.origin = root / 'origin.git'
@@ -98,7 +98,7 @@ class Lab:
         self.model = MockModel()
         (self.home / 'codex' / 'config.toml').write_text(self.model.codex_config(self.work.values(), codex_extra))
         ring_port = self.free_port()
-        self.ringd = subprocess.Popen([str(REPO / 'bin' / 'ringd'), '--port', str(ring_port),
+        self.busd = subprocess.Popen([sys.executable, '-m', 'ring2.busd', '--port', str(ring_port),
                                        '--db', str(root / 'ring.db')], env=self.env,
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.settings = {
@@ -109,7 +109,7 @@ class Lab:
             'tracker_dir': str(self.tracker), 'codex': str(self.shims / 'codex'),
             'env': {'CODEX_HOME': str(self.home / 'codex')}, **settings}
         self.config = self.write_config('ring2.json')
-        wait('ringd', lambda: self.ring2('post', 'exp', 'bus is up', check=False).returncode == 0)
+        wait("the bus server", lambda: self.ring2('post', 'exp', 'bus is up', check=False).returncode == 0)
 
     def start_dolt(self):
         base = REPO / '.ring2-tmp'
@@ -140,11 +140,11 @@ class Lab:
         return path
 
     def close(self):
-        if self.ringd:
+        if self.busd:
             for label in self.work:
                 self.ring2('stop', label=label, check=False)
-            self.ringd.terminate()
-            self.ringd.wait()
+            self.busd.terminate()
+            self.busd.wait()
         subprocess.run(['tmux', '-L', self.socket, 'kill-server'], capture_output=True)
         socket_file = Path(f'/tmp/tmux-{os.getuid()}') / self.socket
         if socket_file.is_socket():

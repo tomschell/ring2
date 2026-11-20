@@ -1,7 +1,7 @@
 """Claim, give-back, review PASS, test result, publish and close on a throwaway
 bd tracker and a local bare origin. No Codex session is involved.
 
-Run: python3 -m unittest tests.ring2.test_tasks -v
+Run: python3 -m unittest tests.test_tasks -v
 """
 import shutil
 import subprocess
@@ -9,7 +9,7 @@ import sys
 import time
 import unittest
 
-from tests.ring2.lab import HAVE_TOOLS, Lab
+from tests.lab import HAVE_TOOLS, Lab
 
 RACERS = [f'racer-{n}' for n in range(6)]
 

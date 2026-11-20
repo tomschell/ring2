@@ -1,4 +1,5 @@
-"""Bus: post a message, watch for messages by @label. Talks HTTP to a Ring server.
+"""Bus: post a message, watch for messages by @label. Talks HTTP to the bus
+server (`python3 -m ring2.busd`). A message is one line, at most 4096 bytes.
 
 Settings: ring_url, channels.
 `post` returning means the server stored the message (it has a sequence); it

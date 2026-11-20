@@ -1,7 +1,7 @@
 """The same slice with a headless Codex: an app-server with no TUI and no tmux,
 driven by ring2's runner. Real Codex binary, mock model.
 
-Run: python3 -m unittest tests.ring2.test_headless -v
+Run: python3 -m unittest tests.test_headless -v
 """
 import json
 import os
@@ -12,7 +12,7 @@ import threading
 import time
 import unittest
 
-from tests.ring2.lab import CODEX, HAVE_TOOLS, Lab, alive, wait
+from tests.lab import CODEX, HAVE_TOOLS, Lab, alive, wait
 
 ROLE = 'exp-role'
 

@@ -1,4 +1,4 @@
-"""Which bus messages a role receives. Run: python3 -m unittest tests.ring2.test_bus"""
+"""Which bus messages a role receives. Run: python3 -m unittest tests.test_bus"""
 import unittest
 
 from ring2.bus import addressed

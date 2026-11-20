@@ -1,6 +1,6 @@
 """ring2: five small modules that meet only at plain data.
 
-  bus       post and watch by @label              (a Ring server)
+  bus       post and watch by @label              (the bus server, ring2.busd)
   sessions  start/stop/restart Codex in tmux      (tmux, codex)
   headless  the same without tmux or a TUI        (codex)
   delivery  messages into a running session       (codex; any message source)

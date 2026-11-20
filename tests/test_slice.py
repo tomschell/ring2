@@ -1,7 +1,7 @@
 """One role session end to end: the real Codex binary in tmux, a mock model,
 the local Ring server, a throwaway bd tracker and a bare origin.
 
-Run: python3 -m unittest tests.ring2.test_slice -v
+Run: python3 -m unittest tests.test_slice -v
 """
 import json
 import threading
@@ -9,7 +9,7 @@ import time
 import unittest
 from pathlib import Path
 
-from tests.ring2.lab import HAVE_TOOLS, Lab, alive, wait
+from tests.lab import HAVE_TOOLS, Lab, alive, wait
 
 ROLE = 'exp-role'
 

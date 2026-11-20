@@ -13,7 +13,9 @@ reads one shared config file. This file holds the little they all share.
 """
 import json
 import os
+import signal
 import subprocess
+import time
 from pathlib import Path
 
 UNCONFIRMED = 'could not confirm whether this happened'
@@ -66,3 +68,67 @@ def write_handle(settings, state):
     tmp = path.with_suffix('.tmp')
     tmp.write_text(json.dumps(state, indent=1))
     os.replace(tmp, path)
+
+
+def _processes():
+    """{pid: (parent pid, start time, command line)} for every process."""
+    table = {}
+    for line in subprocess.run(['ps', '-axo', 'pid=,ppid=,lstart=,command='],
+                               capture_output=True, text=True).stdout.splitlines():
+        fields = line.split(None, 7)
+        if len(fields) == 8:
+            table[int(fields[0])] = (int(fields[1]), ' '.join(fields[2:7]), fields[7])
+    return table
+
+
+def owned_processes(identities):
+    """{pid: start time} of the processes whose command line carries one of the
+    identities (a session token, an app-server endpoint) and of their descendants."""
+    table, identities = _processes(), [identity for identity in identities if identity]
+    mine, pid = set(), os.getpid()
+    while pid in table:  # never this process or what started it
+        mine.add(pid)
+        pid = table[pid][0]
+    found = {pid for pid, (_, _, command) in table.items()
+             if pid not in mine and any(identity in command for identity in identities)}
+    grew = True
+    while grew:
+        children = {pid for pid, (parent, _, _) in table.items() if parent in found and pid not in mine}
+        grew = not children <= found
+        found |= children
+    return {pid: table[pid][1] for pid in found}
+
+
+def stop_processes(identities, grace=5):
+    """End a session's processes and see them gone. True if there were any.
+
+    A pid is a location; the identity is the token or endpoint on the command
+    line, and for a descendant its pid together with its start time. Each
+    signal goes only to a process just seen to still be the same one.
+    """
+    targets = owned_processes(identities)
+    if not targets:
+        return False
+
+    def remaining():
+        targets.update(owned_processes(identities))
+        table = _processes()
+        return [pid for pid, started in targets.items() if pid in table and table[pid][1] == started]
+
+    def signal_all(number):
+        for pid in remaining():
+            try:
+                os.kill(pid, number)
+            except ProcessLookupError:
+                pass
+    signal_all(signal.SIGTERM)
+    deadline = time.monotonic() + grace
+    while remaining() and time.monotonic() < deadline:
+        time.sleep(0.2)
+    signal_all(signal.SIGKILL)  # an app-server with a turn in flight does not leave on SIGTERM
+    deadline = time.monotonic() + 30
+    while remaining():
+        if time.monotonic() > deadline:
+            raise SystemExit(f'ring2: processes {remaining()} did not end')
+        time.sleep(0.2)
+    return True

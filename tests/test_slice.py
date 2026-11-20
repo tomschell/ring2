@@ -4,6 +4,8 @@ the local Ring server, a throwaway bd tracker and a bare origin.
 Run: python3 -m unittest tests.test_slice -v
 """
 import json
+import os
+import signal
 import threading
 import time
 import unittest
@@ -33,6 +35,7 @@ class SliceTest(unittest.TestCase):
         cls.addClassCleanup(lambda: [event.set() for event in cls.holds.values()])
         lab.model.rules += [(name, 'hold', event) for name, event in cls.holds.items()]
         lab.model.rules.append(('CHECK-WORKDIR', 'call', 'exec_command', {'cmd': 'cat NOTES.txt; git status --short'}))
+        lab.model.rules.append(('LONG-TOOL', 'call', 'exec_command', {'cmd': 'sleep 30031'}))
         lab.post(f'@{ROLE} OLD-HISTORY from before this role ever started')
 
     # helpers
@@ -189,6 +192,34 @@ class SliceTest(unittest.TestCase):
     def test_8_first_start_skipped_the_retained_history(self):
         self.assertEqual(self.lab.requests_with('OLD-HISTORY'), [])
         self.assertEqual(self.lab.requests_with('bus is up'), [])
+
+    # stop leaves nothing of the session behind
+
+    def owned(self, state):
+        """Processes whose command line carries the session's endpoint."""
+        return self.lab.run_any('pgrep', '-f', state['endpoint']).split()
+
+    def test_8a_stop_ends_a_tool_subprocess_the_session_was_running(self):
+        lab = self.lab
+        lab.post(f'@{ROLE} LONG-TOOL please')
+        wait('the session to be running its tool', lambda: lab.run_any('pgrep', '-f', 'sleep 30031'))
+        state = self.state()['state']
+        lab.ring2('restart', label=ROLE)
+        self.assertEqual(lab.run_any('pgrep', '-f', 'sleep 30031'), '', 'the old tool subprocess outlived stop')
+        self.assertEqual(self.owned(state), [])
+        self.startup_done(self.state()['state'])
+
+    def test_8b_stop_finds_an_app_server_that_outlived_its_pane(self):
+        lab, state = self.lab, self.state()['state']
+        leader = int(lab.tmux('list-panes', '-t', f'ring2-{ROLE}:server', '-F', '#{pane_pid}'))
+        os.kill(leader, signal.SIGKILL)   # the pane's process dies; the app-server it launched does not
+        wait('the pane to close', lambda: 'server' not in lab.tmux('list-windows', '-t', f'ring2-{ROLE}',
+                                                                  '-F', '#{window_name}'))
+        self.assertTrue(self.owned(state), 'expected the app-server to survive its pane leader')
+        lab.ring2('stop', label=ROLE)
+        self.assertEqual(self.owned(state), [], 'stop left the app-server running')
+        lab.ring2('start', label=ROLE)
+        self.startup_done(self.state()['state'])
 
     # restart edge cases
 

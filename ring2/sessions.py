@@ -22,7 +22,6 @@ import argparse
 import json
 import os
 import shlex
-import signal
 import socket
 import subprocess
 import time
@@ -30,7 +29,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-from ring2 import Refused, need, read_handle, write_handle
+from ring2 import Refused, need, read_handle, stop_processes, write_handle
 
 
 def tmux(settings, *args, check=True):
@@ -127,30 +126,18 @@ def add_window(settings, state, window, argv, cwd=None):
 
 
 def stop(settings, name):
-    """True if a session was stopped, False if none was running."""
+    """True if a session, or anything left of one, was stopped."""
     state = handle(settings, name)
-    session_id = state and _find(settings, state['token'])
-    if not session_id:
+    if not state:
         return False
-    panes = [int(pid) for pid in tmux(settings, 'list-panes', '-s', '-t', session_id, '-F', '#{pane_pid}').split()]
-    tmux(settings, 'kill-session', '-t', session_id)
-    _wait('the session to end', lambda: not _find(settings, state['token']))
-    # An app-server with a turn in flight outlives its pane until the turn ends; do not leave it working.
-    deadline = time.monotonic() + 5
-    while any(_alive(pid) for pid in panes) and time.monotonic() < deadline:
-        time.sleep(0.2)
-    for pid in panes:
-        if _alive(pid):
-            os.killpg(pid, signal.SIGKILL)  # each pane is its own process group
-    return True
-
-
-def _alive(pid):
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
+    session_id = _find(settings, state['token'])
+    if session_id:
+        tmux(settings, 'kill-session', '-t', session_id)
+        _wait('the session to end', lambda: not _find(settings, state['token']))
+    # The app-server can outlive its pane (a turn in flight, a dead pane leader), and so can a tool
+    # it was running. Everything of this session carries its endpoint or descends from what does.
+    left = stop_processes([state.get('endpoint')])
+    return bool(session_id) or left
 
 
 def restart(settings, name, spec):

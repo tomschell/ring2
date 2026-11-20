@@ -168,6 +168,10 @@ class Lab:
     def run(self, *argv, cwd=None):
         return subprocess.run(argv, cwd=cwd, env=self.env, capture_output=True, text=True, check=True).stdout.strip()
 
+    def run_any(self, *argv):
+        """Output of a command whatever its exit code (pgrep exits 1 when it finds nothing)."""
+        return subprocess.run(argv, env=self.env, capture_output=True, text=True).stdout.strip()
+
     def ring2_argv(self, command, *args, label=None, config=None):
         return [sys.executable, '-m', 'ring2', '--config', str(config or self.config),
                 *(['--as', label] if label else []), command, *args]

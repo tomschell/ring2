@@ -123,7 +123,7 @@ Create tasks in the tracker with `bd create`, then notify the coordinator.
 - Tracker read errors prevent `status` from showing sessions.
 - Simultaneous claims by one label can hold two tasks; different labels did not duplicate a claim (0/60).
 - Roles see task titles only; read descriptions with `bd show`.
-- Account connector exclusion with real sign-in remains unverified; Claude startup rejects loaded MCP servers.
+- Account connectors stayed out in one real signed-in Claude run (2026-11-20); that is one run, not a guarantee. Claude startup ends the role if an MCP server loads.
 - Claude stream sessions cannot use `claude attach`; stop before interactive resume.
 - Claude delivery waits for turns; stalled turns delay messages.
 - `status` cannot distinguish stopped from dead or detect stuck sessions. `watch` restarts stopped roles with waiting messages; stop watch first. Nothing restarts watch.

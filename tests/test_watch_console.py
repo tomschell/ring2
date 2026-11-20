@@ -19,7 +19,7 @@ from tests.lab import HAVE_TOOLS, Lab, wait
 ROLE = 'watched'
 
 
-@unittest.skipUnless(HAVE_TOOLS, 'needs codex, tmux and bd')
+@unittest.skipUnless(HAVE_TOOLS, 'needs codex and bd')
 class WatchConsoleTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

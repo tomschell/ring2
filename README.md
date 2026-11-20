@@ -166,10 +166,11 @@ jobs, not these stream-driven sessions: stop the role before using `claude --res
 python3 -m unittest discover -s tests -t .
 ```
 
-The suite needs `codex`, `tmux`, `bd` and `git`; the server-mode tracker tests also need `dolt`.
-It runs the real Codex binary against a local mock model server with a throwaway Codex home, a
-private tmux socket, throwaway trackers and a local bare git origin. It makes no provider request
-and takes several minutes.
+The suite needs `codex`, `bd` and `git`; Claude adapter tests also need `claude`, and server-mode
+tracker tests need `dolt`. Only the test that attaches a TUI needs `tmux`; it skips when tmux is
+missing. The suite runs real provider CLIs against local stand-ins with throwaway homes and
+trackers and a local bare git origin. The attach test uses a private tmux socket. It makes no
+provider request and takes several minutes.
 
 ## Known gaps
 

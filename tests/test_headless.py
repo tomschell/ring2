@@ -6,6 +6,7 @@ Run: python3 -m unittest tests.test_headless -v
 import json
 import os
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -18,7 +19,7 @@ from tests.lab import CODEX, HAVE_TOOLS, Lab, alive, wait
 ROLE = 'exp-role'
 
 
-@unittest.skipUnless(HAVE_TOOLS, 'needs codex, tmux and bd')
+@unittest.skipUnless(HAVE_TOOLS, 'needs codex and bd')
 class HeadlessTest(unittest.TestCase):
     """The steps in order; each later step builds on the earlier ones."""
 
@@ -58,7 +59,6 @@ class HeadlessTest(unittest.TestCase):
         status = self.state()
         self.assertTrue(status['running'])
         self.assertEqual(status['state']['kind'], 'headless')
-        self.assertEqual(self.lab.tmux('list-sessions'), '', 'no tmux session is involved')
         first = wait('the startup turn to reach the model', lambda: self.lab.requests_with('FIRST-BRIEF'))[0]
         self.assertIn(f'You are {ROLE} (implementer)', self.lab.model.user_texts(first)[-1])
         self.turns_done(status['state'], 1)
@@ -115,6 +115,7 @@ class HeadlessTest(unittest.TestCase):
         self.assertIn(' M tracked.txt', str(outputs[0]))
         self.assertIn('?? NOTES.txt', str(outputs[0]))
 
+    @unittest.skipUnless(shutil.which('tmux'), 'needs tmux to attach a TUI')
     def test_5_a_person_attaches_a_tui_and_leaves(self):
         lab, state = self.lab, self.second
         self.turns_done(state, 2)

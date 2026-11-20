@@ -14,7 +14,7 @@ from tests.mock_claude import MockClaude
 from tests.mock_model import MockModel
 
 
-@unittest.skipUnless(HAVE_TOOLS and shutil.which('claude'), 'needs claude, codex, tmux and bd')
+@unittest.skipUnless(HAVE_TOOLS and shutil.which('claude'), 'needs claude, codex and bd')
 class ClaudeTest(unittest.TestCase):
     def setUp(self):
         self.lab = lab = Lab({'cc': ('implementer', 'CLAUDE-FIRST', {'provider': 'claude', 'model': 'claude-sonnet-4-6'}),

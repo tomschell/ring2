@@ -14,7 +14,7 @@ from tests.lab import HAVE_TOOLS, Lab
 RACERS = [f'racer-{n}' for n in range(6)]
 
 
-@unittest.skipUnless(HAVE_TOOLS, 'needs codex, tmux and bd')
+@unittest.skipUnless(HAVE_TOOLS, 'needs codex and bd')
 class TasksTest(unittest.TestCase):
     """Every test here runs once per bd mode: this class embedded, the subclass below against a Dolt server."""
     BD_MODE = 'embedded'
@@ -344,7 +344,7 @@ class TasksTest(unittest.TestCase):
         self.assertEqual(lab.ring2('publish', task, commit, label='impl').stdout.strip(), 'published')
 
 
-@unittest.skipUnless(HAVE_TOOLS and shutil.which('dolt'), 'needs codex, tmux, bd and dolt')
+@unittest.skipUnless(HAVE_TOOLS and shutil.which('dolt'), 'needs codex, bd and dolt')
 class TasksServerTest(TasksTest):
     BD_MODE = 'server'
 

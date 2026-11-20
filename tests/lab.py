@@ -23,7 +23,7 @@ from tests.mock_model import MockModel
 
 REPO = Path(__file__).resolve().parents[1]
 CODEX = os.environ.get('RING2_CODEX') or shutil.which('codex')
-HAVE_TOOLS = bool(CODEX and shutil.which('tmux') and shutil.which('bd'))
+HAVE_TOOLS = bool(CODEX and shutil.which('bd'))
 
 SHIM = '''#!/bin/bash
 # Stand in front of the real {name}: lose one reply after the effect, or fail outright.
@@ -146,7 +146,8 @@ class Lab:
                 self.ring2('stop', label=label, check=False)
             self.busd.terminate()
             self.busd.wait()
-        subprocess.run(['tmux', '-L', self.socket, 'kill-server'], capture_output=True)
+        if shutil.which('tmux'):
+            subprocess.run(['tmux', '-L', self.socket, 'kill-server'], capture_output=True)
         socket_file = Path(f'/tmp/tmux-{os.getuid()}') / self.socket
         if socket_file.is_socket():
             socket_file.unlink()

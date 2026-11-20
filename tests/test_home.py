@@ -12,7 +12,7 @@ from pathlib import Path
 from tests.lab import HAVE_TOOLS, Lab, wait
 
 
-@unittest.skipUnless(HAVE_TOOLS, 'needs codex, tmux and bd')
+@unittest.skipUnless(HAVE_TOOLS, 'needs codex and bd')
 class HomeTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

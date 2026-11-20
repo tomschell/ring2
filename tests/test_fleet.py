@@ -25,7 +25,7 @@ def answer_ready(number, request):
                           {'cmd': f'{sys.executable} {REPO}/ring2 post exp "READY {label} {token}"'})
 
 
-@unittest.skipUnless(HAVE_TOOLS, 'needs codex, tmux and bd')
+@unittest.skipUnless(HAVE_TOOLS, 'needs codex and bd')
 class FleetTest(unittest.TestCase):
     def test_fleet_start_and_stop(self):
         lab = Lab({'alpha': ('implementer', 'brief'), 'taken': ('implementer', 'brief'),

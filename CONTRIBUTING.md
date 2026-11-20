@@ -56,3 +56,5 @@ missing. The suite runs real provider CLIs against local stand-ins with throwawa
 trackers and a local bare git origin. The attach test uses a private tmux socket. It makes no
 provider request and takes several minutes.
 
+
+Run the suite with `RING2_RACES=20` after changing `ring2/tasks.py` or the bd version; the "0 of 60" figure in Known gaps came from the full count.

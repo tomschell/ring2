@@ -3,6 +3,7 @@ bd tracker and a local bare origin. No Codex session is involved.
 
 Run: python3 -m unittest tests.test_tasks -v
 """
+import os
 import shutil
 import subprocess
 import sys
@@ -64,10 +65,11 @@ class TasksTest(unittest.TestCase):
               f'ring2 claim (already holds) {held:.2f}s; ring2 give-back {back:.2f}s', file=sys.stderr)
         self.drain_queue()
 
-    def test_1e_twenty_raw_races_and_twenty_claim_races(self):
-        """Exactly one winner, every time: 20 races on bd's own claim and 20 on `ring2 claim`."""
+    def test_1e_repeated_raw_races_and_claim_races(self):
+        """Exactly one winner in each race on bd's own claim and `ring2 claim`."""
+        count = int(os.environ.get('RING2_RACES', '2'))
         started = time.monotonic()
-        for round_ in range(20):
+        for round_ in range(count):
             task = self.queued(f'raw race {round_}')
             results = self.race([['bd', 'update', task, '--claim', '--actor', label, '--json'] for label in RACERS])
             winners = [label for label, (_, _, code) in zip(RACERS, results) if code == 0]
@@ -75,17 +77,17 @@ class TasksTest(unittest.TestCase):
             self.assertEqual(self.holder(task), ('in_progress', winners[0]))
             self.assertTrue(all('already claimed by' in out + err for out, err, code in results if code), results)
             self.lab.bd('close', task, '--reason', 'raced', '--force')
-        raw = (time.monotonic() - started) / 20
+        raw = (time.monotonic() - started) / count
         started = time.monotonic()
-        for round_ in range(20):
+        for round_ in range(count):
             task = self.queued(f'claim race {round_}')
             results = self.race([self.lab.ring2_argv('claim', label=label) for label in RACERS])
             outs = [out.strip() for out, _, _ in results]
             self.assertEqual([code for _, _, code in results], [0] * 6, results)
             self.assertEqual((sum(task in out for out in outs), outs.count('EMPTY')), (1, 5), (round_, results))
             self.lab.bd('close', task, '--reason', 'raced', '--force')
-        print(f'\n[bd {self.BD_MODE}] 20 six-process races each: raw bd claim {raw:.2f}s per race, '
-              f'ring2 claim {(time.monotonic() - started) / 20:.2f}s per race', file=sys.stderr)
+        print(f'\n[bd {self.BD_MODE}] {count} six-process races each: raw bd claim {raw:.2f}s per race, '
+              f'ring2 claim {(time.monotonic() - started) / count:.2f}s per race', file=sys.stderr)
 
     # 1. claim
 

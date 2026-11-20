@@ -2,7 +2,8 @@
 chosen git branch. Needs only git.
 
 Settings: repo, remote (default origin), branch (default main), reviewers
-(labels whose PASS counts), review_required and test_required (default true), test_command (optional).
+(labels whose PASS counts), review_required and test_required (default true), test_command (optional),
+pass_carries_rebase (default false).
 
 Evidence is prose lines, each with an author:
   TEST PASS <commit> `<command>` (run <time>)   |   TEST FAIL (exit N) <commit> ...
@@ -185,13 +186,43 @@ def has_pass(settings, commit, evidence):
                for author, text in evidence.read())
 
 
+def patch_id(settings, commit, branch):
+    base = git(settings, 'merge-base', branch, commit)
+    diff = git(settings, 'diff', '--no-ext-diff', '--no-textconv', '--binary', base, commit)
+    result = subprocess.run(['git', 'patch-id', '--stable'], input=diff, capture_output=True, text=True)
+    if result.returncode:
+        raise Refused(f'ring2: git patch-id: {result.stderr.strip()}')
+    return result.stdout.split()[0] if result.stdout.strip() else None
+
+
+def carried_pass(settings, commit, evidence, branch):
+    """Only inspect PASS lines in the caller's evidence store (one task in the app)."""
+    candidate = patch_id(settings, commit, branch)
+    if candidate:
+        for author, text in evidence.read():
+            found = PASS_LINE.match(text)
+            if author in (settings.get('reviewers') or []) and found:
+                previous = found.group(1)
+                try:
+                    if patch_id(settings, previous, branch) == candidate:
+                        return previous
+                except Refused:  # Missing old commits cannot supply a PASS.
+                    continue
+    return None
+
+
 def publish(settings, commit, evidence):
     """Fast-forward the target branch to exactly `commit`."""
     commit, (remote, branch) = full(settings, commit), target(settings)
     if settings.get('test_required', True) and not tested(commit, evidence, settings.get('test_command')):
         raise Refused(f'ring2: not published: no passing test result for {commit}')
+    carried = None
     if settings.get('review_required', True) and not has_pass(settings, commit, evidence):
-        raise Refused(f'ring2: not published: no reviewer PASS for {commit}')
+        if settings.get('pass_carries_rebase', False):
+            git(settings, 'fetch', '--quiet', remote, branch)
+            carried = carried_pass(settings, commit, evidence, 'FETCH_HEAD')
+        if not carried:
+            raise Refused(f'ring2: not published: no reviewer PASS for {commit}')
     current = git(settings, 'ls-remote', remote, f'refs/heads/{branch}').split('\t')[0]
     if current == commit:
         return 'already published'
@@ -199,7 +230,7 @@ def publish(settings, commit, evidence):
         raise Refused(f'ring2: not published: {commit} is not a fast-forward of {remote} {branch} {current}')
     effect(f'publish {commit}', ['git', '-C', settings['repo'], 'push', '--quiet', remote,
                                  f'{commit}:refs/heads/{branch}'])
-    return 'published'
+    return 'published' + (f'\ncarried PASS from {carried} to {commit}' if carried else '')
 
 
 def published(settings, commit):
@@ -218,6 +249,7 @@ def main(argv=None):
     parser.add_argument('--branch')
     parser.add_argument('--reviewer', action='append')
     parser.add_argument('--no-review', action='store_true')
+    parser.add_argument('--pass-carries-rebase', action='store_true')
     parser.add_argument('--no-test', action='store_true')
     parser.add_argument('--as', dest='label')
     parser.add_argument('command', choices=['test', 'pass', 'publish', 'published'])
@@ -225,6 +257,7 @@ def main(argv=None):
     parser.add_argument('test_command', nargs='?')
     opts = parser.parse_args(argv)
     settings = {'repo': opts.repo, 'remote': opts.remote, 'branch': opts.branch,
+                'pass_carries_rebase': opts.pass_carries_rebase,
                 'reviewers': opts.reviewer, 'review_required': not opts.no_review, 'test_required': not opts.no_test}
     need(settings, 'ship', 'repo')
     evidence = GitNotes(settings, opts.commit)

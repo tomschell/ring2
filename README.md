@@ -93,6 +93,7 @@ Service options use `module.option`; uppercase names are environment variables. 
 | `test_command` | unset | Fix the test command; a CLI override must match, and publish accepts only results for this command. |
 | `test_required` | true | Require a passing test before publish; standalone ship's `--no-test` disables only this check. |
 | `review_required` | true | Require a reviewer PASS before publish; standalone ship's `--no-review` disables only this check. |
+| `pass_carries_rebase` | false | Accept a PASS from the same task when the whole diff from the published branch's fork point has the same stable git patch ID; standalone ship uses `--pass-carries-rebase`. |
 | `repo` | role workdir in the app; required standalone | Standalone ship repository (`--repo`). |
 | `reviewers` | app's reviewer roles; empty standalone | Standalone ship labels whose PASS counts (repeat `--reviewer`). |
 | `sessions` | empty map | Standalone session entries keyed by name. |
@@ -158,6 +159,7 @@ and ends with the time of that run, so every run is its own line and the newest 
 With a configured test command, the app also accepts `test <task> <commit>` without a command argument.
 An error starting "not published" means the branch was not touched; "could not confirm whether
 this happened" means the push was sent and its outcome is unknown. Rerunning is safe either way.
+With `pass_carries_rebase`, the reviewer has not seen the change on its new base; only the rerun of the tests covers how it combines with what landed.
 
 ### The assembled app
 

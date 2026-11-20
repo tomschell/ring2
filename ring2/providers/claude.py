@@ -86,6 +86,7 @@ def run(spec_path, token):
     env = {**os.environ, **settings.get('env', {}), **spec.get('env', {}),
            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1', 'DISABLE_AUTOUPDATER': '1',
            'DISABLE_TELEMETRY': '1', 'DISABLE_ERROR_REPORTING': '1',
+           'ENABLE_CLAUDEAI_MCP_SERVERS': 'false',
            'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS': '1'}
     process = subprocess.Popen(argv, cwd=spec['workdir'], env=env, stdin=subprocess.PIPE,
                                stdout=subprocess.PIPE, text=True, bufsize=1)

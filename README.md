@@ -154,6 +154,7 @@ A role with `"provider": "claude"` and a Claude model (for example `"model": "cl
 runs Claude Code headless (tested with 2.1.302) using an existing subscription sign-in. Set `claude`
 to override the binary or `env` to set `CLAUDE_CONFIG_DIR`; `"resume": true` keeps its conversation
 over restarts. The adapter disables permission checks, configured MCP servers, updates and telemetry,
+and sets `ENABLE_CLAUDEAI_MCP_SERVERS=false` to keep account connectors from loading,
 and ignores user/project settings. It ends the role if startup reports an MCP server or permission
 checks. Status JSON includes `busy`. It waits for the CLI's
 user-message acknowledgment before advancing delivery. `claude attach` only finds background

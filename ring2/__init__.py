@@ -87,6 +87,14 @@ def token_setting(token):
     return f'ring2_session="{token}"'
 
 
+def trust_setting(workdir):
+    """A `-c` value that has an app-server treat the session's folder as trusted, so its TUI never
+    stops at "Trust this folder?". For that process only: the Codex config file is not edited.
+    Codex matches the folder as it was named, so the key is the path as given and as resolved."""
+    paths = dict.fromkeys([str(workdir), str(Path(workdir).resolve())])
+    return 'projects={%s}' % ','.join(f'{json.dumps(path)}={{trust_level="trusted"}}' for path in paths)
+
+
 def owned_processes(identities):
     """{pid: start time} of the processes whose command line carries one of the
     identities (a session token, never an endpoint) and of their descendants."""

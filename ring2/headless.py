@@ -43,7 +43,7 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
-from ring2 import Refused, need, read_handle, stop_processes, token_setting, write_handle
+from ring2 import Refused, need, read_handle, stop_processes, token_setting, trust_setting, write_handle
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -202,7 +202,8 @@ def run(spec_path, token):
         port = probe.getsockname()[1]
     endpoint = f'ws://127.0.0.1:{port}'
     server = subprocess.Popen([codex, 'app-server', '--listen', endpoint, '-c', 'check_for_update_on_startup=false',
-                               '-c', token_setting(token)],  # found by stop even if this runner dies right now
+                               '-c', token_setting(token),  # found by stop even if this runner dies right now
+                               '-c', trust_setting(spec['workdir'])],  # as the tmux form, whose TUI would ask
                               cwd=spec['workdir'], env={**os.environ, **settings.get('env', {}), **spec.get('env', {})})
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:

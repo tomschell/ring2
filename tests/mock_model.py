@@ -71,12 +71,12 @@ class MockModel:
         return {'type': 'function_call', 'id': f'fc{number}', 'call_id': f'call{number}',
                 'name': name, 'arguments': json.dumps(arguments)}
 
-    def codex_config(self, workdirs, extra=''):
+    def codex_config(self, extra=''):
+        """No folder is marked trusted here: ring2 itself must do that for the folders it uses."""
         return (f'model="gpt-6-astra"\nmodel_provider="mock"\n{extra}[model_providers.mock]\nname="offline"\n'
                 f'base_url="http://127.0.0.1:{self.port}/v1"\nwire_api="responses"\n'
                 f'requires_openai_auth=false\n[features]\nremote_models=false\n'
-                f'responses_websockets=false\nresponses_websockets_v2=false\n'
-                + ''.join(f'[projects."{workdir}"]\ntrust_level="trusted"\n' for workdir in workdirs))
+                f'responses_websockets=false\nresponses_websockets_v2=false\n')
 
     def user_texts(self, request):
         """The user message texts of one request, oldest first."""

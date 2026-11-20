@@ -97,7 +97,7 @@ class Lab:
             self.run('bd', 'init', '--prefix', 'exp', '--non-interactive', cwd=self.tracker)
 
         self.model = MockModel()
-        (self.home / 'codex' / 'config.toml').write_text(self.model.codex_config(self.work.values(), codex_extra))
+        (self.home / 'codex' / 'config.toml').write_text(self.model.codex_config(codex_extra))
         ring_port = self.free_port()
         self.busd = subprocess.Popen([sys.executable, '-m', 'ring2.busd', '--port', str(ring_port),
                                        '--db', str(root / 'ring.db')], env=self.env,

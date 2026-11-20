@@ -29,7 +29,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-from ring2 import Refused, need, read_handle, stop_processes, token_setting, write_handle
+from ring2 import Refused, need, read_handle, stop_processes, token_setting, trust_setting, write_handle
 
 
 def tmux(settings, *args, check=True):
@@ -103,7 +103,8 @@ def start(settings, name, spec, token=None):
     session_id = tmux(
         settings, 'new-session', '-d', '-P', '-F', '#{session_id}', '-s', f'ring2-{name}', '-n', 'server',
         '-x', '160', '-y', '50', '-c', spec['workdir'], *env,
-        shlex.join([codex, 'app-server', '--listen', endpoint, *quiet, '-c', token_setting(token)]))
+        shlex.join([codex, 'app-server', '--listen', endpoint, *quiet, '-c', token_setting(token),
+                    '-c', trust_setting(spec['workdir'])]))  # ring2 always trusts the folders it uses
     tmux(settings, 'set-option', '-t', session_id, '@ring2_token', token)
     state = {'name': name, 'token': token, 'tmux_session': session_id, 'endpoint': endpoint, 'codex': codex,
              'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}

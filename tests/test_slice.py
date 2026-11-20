@@ -74,6 +74,8 @@ class SliceTest(unittest.TestCase):
         self.assertIn(f'You are {ROLE} (implementer)', prompt)
         self.assertIn(str(self.work), prompt)
         self.startup_done(status['state'])
+        # Nobody marked the folder trusted in the Codex home: ring2 did, for this session's app-server only.
+        self.assertNotIn('trust_level', (self.lab.home / 'codex' / 'config.toml').read_text())
         type(self).first = status['state']
 
     def test_2_message_during_a_turn_waits_for_its_end(self):

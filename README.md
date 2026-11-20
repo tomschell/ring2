@@ -13,6 +13,9 @@ It is an experiment: small, tested against a mock model, not yet run against a r
 Sessions always run with the provider's own permission checks off. Run ring2 inside a VM, or on a
 machine you are willing to let the sessions use freely. ring2 never manages, answers or works around
 a provider's sandbox or permission prompts; the machine boundary is the sandbox.
+ring2 always marks the working folder of a role as trusted for the Codex app-server it starts (a
+`-c projects=...` setting on that process; the Codex config file is not edited), so Codex never asks
+"Trust this folder?".
 
 ## Modules
 
@@ -165,7 +168,7 @@ python3 -m unittest discover -s tests -t .
 The suite needs `codex`, `tmux`, `bd` and `git`; the server-mode tracker tests also need `dolt`.
 It runs the real Codex binary against a local mock model server with a throwaway Codex home, a
 private tmux socket, throwaway trackers and a local bare git origin. It makes no provider request
-and takes about fifteen minutes.
+and takes several minutes.
 
 ## Known gaps
 

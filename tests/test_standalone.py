@@ -190,6 +190,8 @@ class DeliveryAloneTest(unittest.TestCase):
         lab = Lab({'own': ('implementer', 'unused')})
         self.addCleanup(lab.close)
         work, home = lab.work['own'], lab.home / 'codex'
+        with open(home / 'config.toml', 'a') as config:   # and has told Codex to trust the folder
+            config.write(f'[projects."{work}"]\ntrust_level = "trusted"\n')
         # Someone runs Codex themselves: an app-server and a TUI, started by hand in their own tmux session.
         endpoint = f'ws://127.0.0.1:{lab.free_port()}'
         lab.tmux('new-session', '-d', '-s', 'by-hand', '-c', str(work), '-e', f'CODEX_HOME={home}',

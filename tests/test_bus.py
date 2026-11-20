@@ -1,7 +1,21 @@
 """Which bus messages a role receives. Run: python3 -m unittest tests.test_bus"""
 import unittest
 
+from ring2 import app
 from ring2.bus import addressed
+
+
+class StatusTextTest(unittest.TestCase):
+    def line(self, **row):
+        return app.status_text([{'label': 'ann', 'session': True, 'loop': True, **row}])
+
+    def test_the_line_says_whether_a_message_waits_not_two_sequence_numbers(self):
+        # The cursor is at 14 and the newest message naming the role is 12: nothing waits.
+        self.assertTrue(self.line(delivered=14, addressed=12).endswith(', waiting: no'))
+        self.assertTrue(self.line(delivered=12, addressed=12).endswith(', waiting: no'))
+        self.assertTrue(self.line(delivered=12, addressed=14).endswith(', waiting: yes'))
+        self.assertTrue(self.line().endswith(', waiting: no'))   # no bus, or no cursor yet
+        self.assertNotIn('14', self.line(delivered=12, addressed=14))
 
 
 class AddressedTest(unittest.TestCase):

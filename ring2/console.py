@@ -19,7 +19,7 @@ PAGE = '''<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="ref
 <title>ring2</title><style>body{{font:14px monospace;margin:2em}}td,th{{padding:2px 12px;text-align:left}}
 .dead{{color:#b00020;font-weight:bold}}</style></head><body>
 <h1>ring2</h1><p>{now}</p>
-<table><tr><th>role</th><th>session</th><th>delivery</th><th>task</th><th>last activity</th><th>delivered / addressed</th></tr>
+<table><tr><th>role</th><th>session</th><th>delivery</th><th>task</th><th>last activity</th><th>waiting</th></tr>
 {rows}</table>
 <h2>bus</h2><table>{messages}</table>{problem}</body></html>'''
 
@@ -35,7 +35,7 @@ def page(cfg, refresh=5):
             age = f'{int(now - row["active"])} s ago ({row["active_source"]})' if 'active' in row else 'unknown'
             rows.append(f'<tr id="{html.escape(row["label"])}"><td>{html.escape(row["label"])} ({html.escape(str(row["role"]))})</td>'
                         f'{alive(row["session"])}{alive(row["loop"])}<td>{html.escape(" ".join(row.get("tasks", [])) or "-")}</td>'
-                        f'<td>{age}</td><td>{row.get("delivered", "-")} / {row.get("addressed", "-")}</td></tr>')
+                        f'<td>{age}</td><td>{app.waiting(row)}</td></tr>')
         if cfg.get('ring_url') and cfg.get('channels'):
             for message in bus.events(cfg, 0, wait=0)[-20:]:
                 messages.append(f'<tr><td>{message["sequence"]}</td><td>{html.escape(message["created_at"])}</td>'

@@ -133,7 +133,7 @@ python3 -m ring2 --config ring2.json fleet stop
 While it runs:
 
 ```
-python3 -m ring2 --config ring2.json status            # per role: session, delivery, task, last activity, delivered/addressed
+python3 -m ring2 --config ring2.json status            # per role: session, delivery, task, last activity, waiting: yes|no
 python3 -m ring2.watch --config ring2.json &
 python3 -m ring2.console --config ring2.json --port 8780 &
 ```

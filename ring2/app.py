@@ -197,14 +197,19 @@ def status(cfg):
     return rows
 
 
+def waiting(row):
+    """'yes' when a retained bus message naming the role lies beyond its cursor, else 'no'.
+    `delivered` and `addressed` are bus sequence numbers, not counts, so the text shows neither."""
+    return 'yes' if row.get('delivered') is not None and row.get('addressed', 0) > row['delivered'] else 'no'
+
+
 def status_text(rows):
     lines = []
     for row in rows:
         age = f'{int(time.time()) - row["active"]}s ago ({row["active_source"]})' if 'active' in row else 'unknown'
-        waiting = (f'{row["delivered"]}/{row["addressed"]}' if row.get('delivered') is not None else 'none')
         lines.append(f'{row["label"]}: session {"alive" if row["session"] else "dead"}, '
                      f'loop {"alive" if row["loop"] else "dead"}, tasks {" ".join(row.get("tasks", [])) or "-"}, '
-                     f'active {age}, delivered/addressed {waiting}')
+                     f'active {age}, waiting: {waiting(row)}')
     return '\n'.join(lines)
 
 

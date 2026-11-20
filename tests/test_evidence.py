@@ -2,7 +2,9 @@
 
 Run: python3 -m unittest tests.test_evidence
 """
+import subprocess
 import unittest
+from unittest import mock
 
 from ring2 import ship
 
@@ -48,6 +50,21 @@ class EvidenceGrammarTest(unittest.TestCase):
         self.assertFalse(self.result(f'TEST PASS {CANDIDATE} `t`', f'TEST FAIL (exit 1) {CANDIDATE} `t`'))
         self.assertTrue(self.result(f'TEST FAIL (exit 1) {CANDIDATE} `t`', f'TEST PASS {CANDIDATE} `t`',
                                     f'TEST FAIL (exit 1) {OTHER} `echo {CANDIDATE}`'))
+
+
+class UnreadableNotesTest(unittest.TestCase):
+    def read(self, returncode, stderr, stdout=''):
+        result = subprocess.CompletedProcess([], returncode, stdout, stderr)
+        with mock.patch.object(ship, 'full', lambda settings, commit: commit), \
+                mock.patch.object(ship, 'git', lambda *args, **kwargs: result):
+            return ship.GitNotes({'repo': '.'}, CANDIDATE).read()
+
+    def test_no_note_is_no_evidence_but_a_failed_read_is_an_error(self):
+        self.assertEqual(self.read(0, '', 'rae: PASS x\n'), [('rae', 'PASS x')])
+        self.assertEqual(self.read(1, f'error: no note found for object {CANDIDATE}.'), [])
+        with self.assertRaises(SystemExit) as raised:
+            self.read(128, 'fatal: unable to read tree')
+        self.assertIn('could not read', str(raised.exception))
 
 
 if __name__ == '__main__':

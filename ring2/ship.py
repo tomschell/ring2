@@ -51,6 +51,8 @@ class GitNotes:
 
     def read(self):
         shown = git(self.settings, 'notes', '--ref', 'ring2', 'show', self.commit, check=False)
+        if shown.returncode and 'no note found' not in shown.stderr:
+            raise SystemExit(f'ring2 ship: could not read the notes on {self.commit}: {shown.stderr.strip()}')
         return [tuple(line.split(': ', 1)) for line in shown.stdout.splitlines() if ': ' in line]
 
     def add(self, author, text):

@@ -17,10 +17,16 @@ from ring2 import UNCONFIRMED, Refused, Unconfirmed, effect, need
 
 
 def _read(settings, *args):
+    """What the tracker says. A read that fails or comes back unparsable is an
+    error, never an empty answer: "no evidence" must mean the tracker said so."""
     need(settings, 'tasks', 'tracker_dir')
-    out = subprocess.run(['bd', *args, '--json'], cwd=settings['tracker_dir'],
-                         capture_output=True, text=True, check=True).stdout
-    return json.loads(out or '[]')
+    result = subprocess.run(['bd', *args, '--json'], cwd=settings['tracker_dir'], capture_output=True, text=True)
+    try:
+        if result.returncode:
+            raise ValueError(result.stderr.strip())
+        return json.loads(result.stdout)
+    except ValueError as exc:
+        raise SystemExit(f'ring2 tasks: could not read the tracker (bd {args[0]}): {exc}; nothing was changed') from None
 
 
 def _write(settings, what, *args):

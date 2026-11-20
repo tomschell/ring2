@@ -290,6 +290,39 @@ class TasksTest(unittest.TestCase):
         self.assert_unconfirmed(lab.ring2('give-back', other, label='impl', check=False))
         self.assertEqual(lab.ring2('give-back', other, label='impl').stdout.strip(), 'already given back')
 
+    # an unreadable read is an error, never "nothing there"
+
+    def test_4_an_unreadable_tracker_is_not_an_empty_one(self):
+        lab = self.lab
+        self.drain_queue()
+        task = self.queued('long history')
+        commit = lab.commit('impl', 'e.txt', 'e\n')
+        lab.run('git', 'fetch', '-q', str(lab.work['impl']), commit, cwd=lab.work['rev'])
+        for number in range(15):
+            lab.bd('comment', task, f'progress note {number}: ' + 'detail ' * 40, '--actor', 'impl')
+        lab.ring2('test', task, commit, 'test -f e.txt', label='impl')
+        lab.ring2('review-pass', task, commit, label='rev')
+        for number in range(15):
+            lab.bd('comment', task, f'later note {number}: PASS is discussed here, {commit} too', '--actor', 'rev')
+        before = lab.origin_main()
+
+        def unreadable(result):
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('could not read', result.stderr)
+            for wrong in ('no passing test result', 'no reviewer PASS', 'Traceback', 'EMPTY'):
+                self.assertNotIn(wrong, result.stderr + result.stdout)
+        for lose in (lambda: (lab.shims / 'refuse-bd').write_text('comments'), lambda: lab.lose_reply('bd', 'comments')):
+            lose()
+            unreadable(lab.ring2('publish', task, commit, label='impl', check=False))
+            (lab.shims / 'refuse-bd').unlink(missing_ok=True)
+            self.assertEqual(lab.origin_main(), before)
+        (lab.shims / 'refuse-bd').write_text('list')
+        unreadable(lab.ring2('claim', label='impl', check=False))
+        (lab.shims / 'refuse-bd').unlink()
+        self.assertEqual(self.holder(task), ('open', None))
+        # Read again, the evidence is found under the long history.
+        self.assertEqual(lab.ring2('publish', task, commit, label='impl').stdout.strip(), 'published')
+
 
 @unittest.skipUnless(HAVE_TOOLS and shutil.which('dolt'), 'needs codex, tmux, bd and dolt')
 class TasksServerTest(TasksTest):

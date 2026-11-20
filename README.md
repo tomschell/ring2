@@ -23,9 +23,17 @@ Three kinds of file. The rule between them is what keeps it small.
 
 | Kind | Files | May depend on | Counts against the core budget |
 |---|---|---|---|
-| **Core** | `bus` (post and read messages), `tasks` (queue, atomic claim, close; needs `bd`), `ship` (test result, reviewer PASS, fast-forward publish; needs `git`), `delivery` (each message into a session once), `app` (all of it from one config file; `status`) | the core only | yes (3,000 lines) |
-| **Adapter** | one per model harness: `headless` (Codex; needs `codex`), `claude` (Claude Code; needs `claude`). | the core | no |
+| **Core** | `bus` (post and read messages), `tasks` (queue, atomic claim, close; needs `bd`), `ship` (test result, reviewer PASS, fast-forward publish; needs `git`), `delivery` (each message into a session once), `session` (shared session lifecycle), `app` (all of it from one config file; `status`) | the core only | yes (3,000 lines) |
+| **Adapter** | one per model harness: `providers/codex.py` (Codex; needs `codex`), `providers/claude.py` (Claude Code; needs `claude`). | the core | no |
 | **Optional** | `busd` (the bus server, one SQLite file), `watch` (restarts a role whose delivery died while a message waits), `console` (one read-only page) | the core | no |
+
+Adapters live under `ring2/providers/` and load only when a role needs them. Shared start locks,
+tokens, handles, spec/log files, runner launch and process cleanup live in `ring2/session.py`.
+Each adapter supplies `KIND` (the existing handle kind), `WORD` (the started-line provider word),
+`run(spec_path, token)` and `status(settings, name)`. Status supplies `session`, `loop`, optional
+`busy` (absent when unknown), and optional `active`/`active_source`. Adding an adapter needs no
+core edit; removing one leaves other providers usable. The standalone session entry point is now
+`python3 -m ring2.providers.codex --config FILE start|stop|restart|status NAME`.
 
 Only the Python standard library is imported. There is nothing to install: run from a clone.
 
@@ -178,8 +186,6 @@ Seen in the real-provider trial and left as they are:
 
 By design, or not built:
 
-- The core still holds a few Codex assumptions (what "delivered" and "last activity" mean, how a role's
-  processes are recognised); `delivery` still carries a Codex queue sender for a session you run yourself.
 - With a real sign-in it is not yet verified that account connectors stay out; the start-up check ends the role if an MCP server loads.
 - Claude stream-driven sessions cannot be watched with `claude attach`; stop before interactive resume.
 - Claude delivery waits for the current turn; a stalled turn delays later messages.

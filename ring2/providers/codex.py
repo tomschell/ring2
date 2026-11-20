@@ -23,12 +23,10 @@ Settings: state_dir, codex, env. Codex's own approval prompts and sandbox are al
 Spec: {model, workdir, prompt, resume (a thread id, optional),
        source: {ring_url, channels, label, cursor} (optional)}.
 
-  python3 -m ring2.headless --config FILE start|stop|restart|status NAME
+  python3 -m ring2.providers.codex --config FILE start|stop|restart|status NAME
   (FILE: the settings above plus "sessions": {NAME: spec})
 """
-import argparse
 import base64
-import fcntl
 import json
 import os
 import signal
@@ -38,13 +36,26 @@ import subprocess
 import sys
 import time
 import urllib.request
-import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
-from ring2 import Refused, need, read_handle, stop_processes, token_setting, trust_setting, write_handle
+from ring2 import owned_processes, read_handle, session, write_handle
 
-ROOT = Path(__file__).resolve().parent.parent
+KIND, WORD = 'headless', 'codex'
+
+
+def token_setting(token):
+    """What an app-server's command line carries so that it is found by its session's token:
+    a `-c` config setting Codex ignores. An endpoint is no identity; its port gets reused."""
+    return f'ring2_session="{token}"'
+
+
+def trust_setting(workdir):
+    """A `-c` value that has an app-server treat the session's folder as trusted, so its TUI never
+    stops at "Trust this folder?". For that process only: the Codex config file is not edited.
+    Codex matches the folder as it was named, so the key is the path as given and as resolved."""
+    paths = dict.fromkeys([str(workdir), str(Path(workdir).resolve())])
+    return 'projects={%s}' % ','.join(f'{json.dumps(path)}={{trust_level="trusted"}}' for path in paths)
 
 
 class RpcError(OSError):
@@ -171,26 +182,6 @@ def _ready(url):
         return False
 
 
-def _wait(what, check, seconds=60):
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        value = check()
-        if value:
-            return value
-        time.sleep(0.2)
-    raise SystemExit(f'ring2: timed out waiting for {what}')
-
-
-def _command(pid):
-    return subprocess.run(['ps', '-p', str(pid), '-o', 'command='], capture_output=True, text=True).stdout
-
-
-def running(settings, name):
-    state = read_handle(settings, name)
-    return bool(state and state.get('kind') == 'headless' and state.get('pid')
-                and state['token'] in _command(state['pid']))
-
-
 def run(spec_path, token):
     """The runner: app-server, thread, first turn, then the delivery loop. Never returns."""
     from ring2 import bus, delivery
@@ -206,7 +197,7 @@ def run(spec_path, token):
                               cwd=spec['workdir'], env={**os.environ, **settings.get('env', {}), **spec.get('env', {})})
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:
-        _wait('the Codex app-server', lambda: _ready(f'http://127.0.0.1:{port}/readyz'))
+        session.wait('the Codex app-server', lambda: _ready(f'http://127.0.0.1:{port}/readyz'))
         rpc = Rpc(endpoint)
         # Always with Codex's own checks off: the machine or VM is the sandbox.
         params = {'cwd': spec['workdir'], 'model': spec['model'],
@@ -231,71 +222,19 @@ def run(spec_path, token):
         server.terminate()
 
 
-def start(settings, name, spec):
-    need(spec, f'headless ({name})', 'model', 'workdir', 'prompt')
-    state_dir = Path(settings['state_dir'])
-    state_dir.mkdir(parents=True, exist_ok=True)
-    with open(state_dir / f'{name}.start.lock', 'w') as lock:  # one start per name at a time
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            raise Refused(f'ring2: {name} is being started by another command') from None
-        if running(settings, name):
-            raise Refused(f'ring2: {name} is already running')
-        stop(settings, name)  # whatever an earlier start that was cut short left behind
-        token = uuid.uuid4().hex
-        # The handle carries the token before the runner exists, so a start cut at any point can be stopped.
-        write_handle(settings, {'name': name, 'kind': 'headless', 'token': token,
-                                'thread': (read_handle(settings, name) or {}).get('thread')})
-        spec_path = state_dir / f'{name}.spec.json'
-        spec_path.write_text(json.dumps({**spec, 'name': name, 'settings': settings}, indent=1))
-        log = open(state_dir / f'{name}.log', 'w')  # one log per name, replaced by each start
-        runner = subprocess.Popen([sys.executable, '-m', 'ring2.headless', 'run', str(spec_path), token],
-                                  env={**os.environ, 'PYTHONPATH': str(ROOT)}, cwd=spec['workdir'],
-                                  stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
 
-        def started():
-            if runner.poll() is not None:
-                raise SystemExit(f'ring2: the runner for {name} exited; see {log.name}')
-            state = read_handle(settings, name)
-            return state if state and state['token'] == token and state.get('pid') else None
-        return _wait('the headless session', started)
-
-
-def stop(settings, name):
-    """True if a session, or anything left of one, was stopped. The identity is
-    the token on the runner's and the app-server's command lines, never the endpoint."""
-    state = read_handle(settings, name)
-    if not state or state.get('kind') != 'headless':
-        return False
-    return stop_processes([state['token']])
-
-
-def restart(settings, name, spec):
-    stop(settings, name)
-    return start(settings, name, spec)
-
-
-def main(argv=None):
-    if (argv or sys.argv[1:])[:1] == ['run']:
-        return run(*(argv or sys.argv[1:])[1:])
-    parser = argparse.ArgumentParser(prog='ring2.headless', description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--config', required=True)
-    parser.add_argument('command', choices=['start', 'stop', 'restart', 'status'])
-    parser.add_argument('name')
-    opts = parser.parse_args(argv)
-    settings = json.loads(Path(opts.config).read_text())
-    spec = settings.pop('sessions', {}).get(opts.name)
-    if opts.command in ('start', 'restart'):
-        need({'session': spec}, f'headless ({opts.name})', 'session')
-        print(json.dumps((start if opts.command == 'start' else restart)(settings, opts.name, spec), indent=1))
-    elif opts.command == 'stop':
-        print('stopped' if stop(settings, opts.name) else 'not running')
-    else:
-        print(json.dumps({'running': running(settings, opts.name), 'handle': read_handle(settings, opts.name)}, indent=1))
-    return 0
+def status(settings, name):
+    """Busy is unknown; the runner observes turn completion only when sending the next turn."""
+    state = read_handle(settings, name) or {}
+    row = {'session': bool(state.get('token') and owned_processes([token_setting(state['token'])])),
+           'loop': session.running(settings, name, KIND)}
+    for source, path in (('rollout', state.get('rollout')),
+                         ('cursor', Path(settings['state_dir']) / f'{name}.cursor')):
+        if path and Path(path).exists():
+            row.update(active=int(Path(path).stat().st_mtime), active_source=source)
+            break
+    return row
 
 
 if __name__ == '__main__':
-    raise SystemExit(main())
+    raise SystemExit(session.main(sys.modules[__name__]))

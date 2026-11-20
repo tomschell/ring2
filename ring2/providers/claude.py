@@ -3,7 +3,6 @@ message acknowledges receipt before delivery advances its cursor. Only one
 turn is sent at a time. Handles, tokens and process ownership match headless.
 Requires Claude Code 2.1.302; uses only the standard library.
 """
-import fcntl
 import json
 import os
 import signal
@@ -13,14 +12,9 @@ import threading
 import uuid
 from pathlib import Path
 
-from ring2 import Refused, need, read_handle, stop_processes, write_handle
-from ring2.headless import ROOT, _command, _wait
+from ring2 import read_handle, session, write_handle
 
-
-def running(settings, name):
-    state = read_handle(settings, name) or {}
-    return bool(state.get('kind') == 'claude' and state.get('pid')
-                and state['token'] in _command(state['pid']))
+KIND, WORD = 'claude', 'claude'
 
 
 class ClaudeTurns:
@@ -112,38 +106,15 @@ def run(spec_path, token):
         process.terminate()
 
 
-def start(settings, name, spec):
-    need(spec, f'claude ({name})', 'model', 'workdir', 'prompt')
-    state_dir = Path(settings['state_dir'])
-    state_dir.mkdir(parents=True, exist_ok=True)
-    with open(state_dir / f'{name}.start.lock', 'w') as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            raise Refused(f'ring2: {name} is being started by another command') from None
-        if running(settings, name):
-            raise Refused(f'ring2: {name} is already running')
-        stop(settings, name)
-        token = uuid.uuid4().hex
-        write_handle(settings, {'name': name, 'kind': 'claude', 'token': token,
-                                'thread': (read_handle(settings, name) or {}).get('thread')})
-        spec_path = state_dir / f'{name}.spec.json'
-        spec_path.write_text(json.dumps({**spec, 'name': name, 'settings': settings}, indent=1))
-        with open(state_dir / f'{name}.log', 'w') as log:
-            runner = subprocess.Popen([sys.executable, '-m', 'ring2.claude', 'run', str(spec_path), token],
-                                      env={**os.environ, 'PYTHONPATH': str(ROOT)}, cwd=spec['workdir'],
-                                      stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
-        def started():
-            if runner.poll() is not None:
-                raise SystemExit(f'ring2: the runner for {name} exited; see {log.name}')
-            state = read_handle(settings, name)
-            return state if state and state['token'] == token and state.get('pid') else None
-        return _wait('the Claude session', started)
 
-
-def stop(settings, name):
+def status(settings, name):
     state = read_handle(settings, name) or {}
-    return stop_processes([state['token']]) if state.get('kind') == 'claude' else False
+    alive = session.running(settings, name, KIND)
+    row = {'session': alive, 'loop': alive, 'busy': state.get('busy', False) and alive}
+    cursor = Path(settings['state_dir']) / f'{name}.cursor'
+    if cursor.exists():
+        row.update(active=int(cursor.stat().st_mtime), active_source='cursor')
+    return row
 
 
 if __name__ == '__main__':

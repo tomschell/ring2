@@ -1,13 +1,13 @@
 """ring2: five small modules that meet only at plain data.
 
   bus       post and watch by @label              (the bus server, ring2.busd)
-  headless  start/stop/restart Codex sessions     (codex)
-  delivery  messages into a running session       (codex; any message source)
+  session   shared session lifecycle and process ownership
+  providers harness-specific commands and turns
+  delivery  messages into a running session       (any message source)
   tasks     queue, atomic claim, notes, close     (bd)
   ship      test result, PASS, fast-forward       (git)
 
-Each has its own entry point (`python3 -m ring2.<module> --help`) and takes
-only its own settings. `python3 -m ring2` (app.py) is the assembled tool that
+The command modules take only their own settings. `python3 -m ring2` (app.py) is the assembled tool that
 reads one shared config file. This file holds the little they all share.
 """
 import json
@@ -80,20 +80,6 @@ def _processes():
     return table
 
 
-def token_setting(token):
-    """What an app-server's command line carries so that it is found by its session's token:
-    a `-c` config setting Codex ignores. An endpoint is no identity; its port gets reused."""
-    return f'ring2_session="{token}"'
-
-
-def trust_setting(workdir):
-    """A `-c` value that has an app-server treat the session's folder as trusted, so its TUI never
-    stops at "Trust this folder?". For that process only: the Codex config file is not edited.
-    Codex matches the folder as it was named, so the key is the path as given and as resolved."""
-    paths = dict.fromkeys([str(workdir), str(Path(workdir).resolve())])
-    return 'projects={%s}' % ','.join(f'{json.dumps(path)}={{trust_level="trusted"}}' for path in paths)
-
-
 def owned_processes(identities):
     """{pid: start time} of the processes whose command line carries one of the
     identities (a session token, never an endpoint) and of their descendants."""
@@ -138,7 +124,7 @@ def stop_processes(identities, grace=5):
     deadline = time.monotonic() + grace
     while remaining() and time.monotonic() < deadline:
         time.sleep(0.2)
-    signal_all(signal.SIGKILL)  # an app-server with a turn in flight does not leave on SIGTERM
+    signal_all(signal.SIGKILL)  # a provider with a turn in flight may not leave on SIGTERM
     deadline = time.monotonic() + 30
     while remaining():
         if time.monotonic() > deadline:

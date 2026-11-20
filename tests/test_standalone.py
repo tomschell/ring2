@@ -3,24 +3,21 @@
 Run: python3 -m unittest tests.test_standalone -v
   tasks     a queue claim with no fleet, bus or sessions (only bd)
   ship      test, PASS and publication with no tracker (only git)
-  delivery  attached to a Codex session that ring2 did not start
 """
 import contextlib
 import io
 import os
-import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 import threading
-import time
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from ring2 import Refused, Unconfirmed, ship
-from tests.lab import CODEX, HAVE_TOOLS, REPO, Lab, wait
+from tests.lab import REPO
 
 
 class Plain(unittest.TestCase):
@@ -71,7 +68,6 @@ class TasksAloneTest(Plain):
         self.assertIn('ring2 tasks: missing setting tracker_dir', self.module('tasks', 'claim', check=False).stderr)
         self.assertIn('ring2 ship: missing setting repo', self.module('ship', 'publish', 'abc', check=False).stderr)
         self.assertIn('ring2 bus: missing setting ring_url, channels', self.module('bus', 'post', 'x', check=False).stderr)
-        self.assertIn('ring2 delivery: missing setting', self.module('delivery', check=False).stderr)
         # The assembled tool with a config that knows only the tracker: a task command asks for nothing else.
         config = self.root / 'ring2.json'
         config.write_text('{"tracker_dir": "%s"}' % (self.root / 'nowhere'))
@@ -182,45 +178,6 @@ class ShipAloneTest(Plain):
         self.assertEqual([line.split(' (run ')[0] for line in notes if line],
                          [f'ann: TEST PASS {commit} `test -f two.txt`', f'rae: PASS {commit}'])
         self.assertFalse((self.root / 'home' / '.beads').exists())
-
-
-@unittest.skipUnless(HAVE_TOOLS, 'needs codex, tmux and bd')
-class DeliveryAloneTest(unittest.TestCase):
-    def test_attach_to_a_session_ring2_did_not_start(self):
-        lab = Lab({'own': ('implementer', 'unused')})
-        self.addCleanup(lab.close)
-        work, home = lab.work['own'], lab.home / 'codex'
-        with open(home / 'config.toml', 'a') as config:   # and has told Codex to trust the folder
-            config.write(f'[projects."{work}"]\ntrust_level = "trusted"\n')
-        # Someone runs Codex themselves: an app-server and a TUI, started by hand in their own tmux session.
-        endpoint = f'ws://127.0.0.1:{lab.free_port()}'
-        lab.tmux('new-session', '-d', '-s', 'by-hand', '-c', str(work), '-e', f'CODEX_HOME={home}',
-                 shlex.join([CODEX, 'app-server', '--listen', endpoint, '-c', 'check_for_update_on_startup=false']))
-        time.sleep(3)
-        lab.tmux('new-window', '-d', '-t', 'by-hand', '-c', str(work), shlex.join(
-            [CODEX, '--remote', endpoint, '-C', str(work), '--no-alt-screen', 'STARTED-BY-HAND']))
-        rollout = wait('their thread', lambda: list(home.glob('sessions/*/*/*/rollout-*.jsonl')))[0]
-        thread = rollout.stem[-36:]
-        wait('their first turn to end', lambda: '"task_complete"' in rollout.read_text())
-
-        # They attach delivery with the endpoint and thread; ring2 sessions and the config file are not involved.
-        argv = [sys.executable, '-m', 'ring2.delivery', '--ring-url', lab.settings['ring_url'], '--channel', 'exp',
-                '--as', 'solo', '--endpoint', endpoint, '--thread', thread, '--codex-home', str(home),
-                '--codex', CODEX, '--cursor', str(lab.root / 'solo.cursor')]
-        loop = subprocess.Popen(argv, cwd=lab.root, env=lab.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        self.addCleanup(lambda: (loop.kill(), loop.communicate()))
-        wait('the loop to fix its cursor', (lab.root / 'solo.cursor').exists)
-        second = subprocess.run(argv, cwd=lab.root, env=lab.env, capture_output=True, text=True, timeout=30)
-        self.assertNotEqual(second.returncode, 0)
-        self.assertIn('already has a delivery loop', second.stderr)
-
-        sequence = lab.post('@solo ATTACHED-DELIVERY works')
-        wait('delivery into their session', lambda: lab.requests_with('ATTACHED-DELIVERY'))
-        wait('the cursor to pass it', lambda: (lab.root / 'solo.cursor').read_text() == str(sequence))
-        time.sleep(2)
-        self.assertEqual(rollout.read_text().count('"type":"task_started"'), 2, 'delivered exactly once')
-        self.assertIn('STARTED-BY-HAND', lab.model.user_texts(lab.requests_with('ATTACHED-DELIVERY')[0])[-2])
-        self.assertEqual(lab.tmux('list-sessions', '-F', '#{session_name}'), 'by-hand')
 
 
 if __name__ == '__main__':

@@ -199,14 +199,14 @@ class HeadlessTest(unittest.TestCase):
         lab = self.lab
         config = lab.write_config('solo.json', state_dir=str(lab.root / 'state'), sessions={'solo': {
             'model': lab.settings['roles'][ROLE]['model'], 'workdir': str(self.work), 'prompt': 'SOLO-BRIEF'}})
-        return [sys.executable, '-m', 'ring2.headless', '--config', str(config), command, 'solo']
+        return [sys.executable, '-m', 'ring2.providers.codex', '--config', str(config), command, 'solo']
 
     def solo_run(self, command):
         return subprocess.run(self.solo(command), cwd=self.lab.root, env=self.lab.env, capture_output=True, text=True)
 
     def runners(self):
         spec = self.lab.root / 'state' / 'solo.spec.json'
-        return self.lab.run_any('pgrep', '-f', f'ring2.headless run {spec}').split()
+        return self.lab.run_any('pgrep', '-f', f'ring2.providers.codex run {spec}').split()
 
     def test_9a_two_starts_at_once_leave_one_session(self):
         lab = self.lab

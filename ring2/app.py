@@ -8,15 +8,14 @@ Tasks:     task | claim | give-back TASK
 Bus:       post CHANNEL TEXT
 
 One JSON config file serves every module; each command needs only its own
-module's settings (a task command needs tracker_dir and nothing about Codex).
+module's settings (a task command needs tracker_dir and nothing about sessions).
   home, origin     optional: one fixed directory holding a shared clone of `origin`
                    (home/repo), one linked worktree per role at home/work/<label>
                    and the state files. Made if missing, reused by every start.
                    A role with its own `workdir` is left alone.
   roles            {label: {role, provider, model, brief, workdir}}; role is
                    "implementer" or "reviewer"; "resume": true keeps its thread over a restart.
-                   An existing "headless" value is accepted and ignored.
-  state_dir, codex, claude, env         sessions (provider checks always off)
+  state_dir, env                                    sessions (provider settings go to the adapter)
   ring_url, channels, ready_seconds                  bus, delivery, fleet start
   tracker_dir, queue_label                           tasks
   remote, branch, review_required                    ship (repo is the role's workdir)
@@ -24,13 +23,14 @@ module's settings (a task command needs tracker_dir and nothing about Codex).
 inside a session.
 """
 import argparse
+import importlib
 import json
 import os
 import sys
 import time
 from pathlib import Path
 
-from ring2 import Refused, bus, claude, delivery, headless, need, read_handle, ship, tasks
+from ring2 import Refused, bus, delivery, need, read_handle, session, ship, tasks
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -108,16 +108,17 @@ def cursor_path(cfg, label):
 
 def adapter(cfg, label):
     provider = role(cfg, label).get('provider')
-    if provider not in ('codex', 'claude'):
+    if not isinstance(provider, str) or not provider.isidentifier() or not (
+            ROOT / 'ring2' / 'providers' / f'{provider}.py').is_file():
         raise Refused(f'ring2: provider {provider!r} is not built')
-    return claude if provider == 'claude' else headless
+    return importlib.import_module(f'ring2.providers.{provider}')
 
 
 def start(cfg, label):
     """Start the role's session, tell it its task, and attach delivery from the bus."""
     entry = role(cfg, label)
     need(entry, f'role {label}', 'role', 'provider', 'model', 'brief')
-    session = adapter(cfg, label)
+    provider = adapter(cfg, label)
     where = workdir(cfg, label)
     if cfg.get('home') and not entry.get('workdir'):
         need(cfg, 'app (home)', 'origin')
@@ -139,21 +140,17 @@ def start(cfg, label):
     spec = {'model': entry['model'], 'workdir': where, 'prompt': prompt,
             'env': {'RING2_CONFIG': cfg['path'], 'RING2_ROLE': label}}
     previous = read_handle(cfg, label) or {}
-    state = session.start(session_settings(cfg), label, {
+    state = session.start(cfg, label, {
         **spec, 'resume': entry.get('resume') and previous.get('thread'),
         'source': following and {'ring_url': cfg['ring_url'], 'channels': cfg['channels'], 'label': label,
-                                 'cursor': str(cursor_path(cfg, label))}})
-    print(f'started {label}: {"claude" if session is claude else "headless"} pid {state["pid"]}, thread {state["thread"]}')
+                                 'cursor': str(cursor_path(cfg, label))}}, provider)
+    print(f'started {label}: {provider.WORD} pid {state["pid"]}, thread {state["thread"]}')
     return state
-
-
-def session_settings(cfg):
-    return {key: cfg[key] for key in ('state_dir', 'codex', 'claude', 'env') if key in cfg}
 
 
 def stop(cfg, label):
     role(cfg, label)
-    print(f'stopped {label}' if adapter(cfg, label).stop(cfg, label) else f'{label} is not running')
+    print(f'stopped {label}' if session.stop(cfg, label, adapter(cfg, label).KIND) else f'{label} is not running')
 
 
 def status(cfg):
@@ -162,27 +159,17 @@ def status(cfg):
       session    the provider process is running
       loop       the runner delivering bus messages is running
       tasks      ids the tracker says the role holds (absent with no tracker)
-      active     when the session's rollout file, else the delivery cursor, last changed (unix time), and
-      active_source  which of the two that was
+      active, active_source   last activity time and its source, supplied by the adapter
       delivered, addressed   the cursor, and the newest retained bus sequence naming the role (absent with no bus)
     """
-    from ring2 import owned_processes, token_setting
     following = bool(cfg.get('ring_url') and cfg.get('channels'))
     retained = bus.events(cfg, 0, wait=0) if following else []
     rows = []
     for label, entry in cfg.get('roles', {}).items():
-        state, cursor = read_handle(cfg, label) or {}, cursor_path(cfg, label)
-        row = {'session': bool(state.get('token') and owned_processes([token_setting(state['token'])])),
-               'loop': adapter(cfg, label).running(cfg, label)}
-        if entry.get('provider') == 'claude':
-            row.update(session=row['loop'], busy=state.get('busy', False) and row['loop'])
-        row = {'label': label, 'role': entry.get('role'), **row}
+        cursor = cursor_path(cfg, label)
+        row = {'label': label, 'role': entry.get('role'), **adapter(cfg, label).status(cfg, label)}
         if cfg.get('tracker_dir'):
             row['tasks'] = [issue['id'] for issue in tasks.mine(cfg, label)]
-        for source, path in (('rollout', state.get('rollout')), ('cursor', cursor)):
-            if path and Path(path).exists():
-                row.update(active=int(Path(path).stat().st_mtime), active_source=source)
-                break
         if following:
             row['delivered'] = int(cursor.read_text()) if cursor.exists() else None
             row['addressed'] = max((message['sequence'] for message in retained
@@ -279,7 +266,7 @@ def main(argv=None):
         print(json.dumps(rows, indent=1) if opts.json else status_text(rows))
     elif command == 'status':
         role(cfg, label)
-        print(json.dumps({'running': adapter(cfg, label).running(cfg, label), 'state': read_handle(cfg, label)}, indent=1))
+        print(json.dumps({'running': adapter(cfg, label).status(cfg, label)['loop'], 'state': read_handle(cfg, label)}, indent=1))
     elif command == 'claim':
         print(claim(cfg, label))
     elif command in ('task', 'give-back'):

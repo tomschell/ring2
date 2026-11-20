@@ -84,7 +84,7 @@ def run(spec_path, token):
     thread = spec.get('resume') or str(uuid.uuid4())
     argv = [settings.get('claude') or 'claude', '-p', '--input-format', 'stream-json',
             '--output-format', 'stream-json', '--verbose', '--replay-user-messages',
-            '--permission-mode', 'bypassPermissions', '--bare', '--strict-mcp-config',
+            '--permission-mode', 'bypassPermissions', '--strict-mcp-config',
             '--mcp-config', '{"mcpServers":{}}', '--setting-sources', '', '--no-chrome',
             '--disallowedTools', 'mcp__*', '--model', spec['model'],
             '--append-system-prompt', f'(ring2 session {token})',

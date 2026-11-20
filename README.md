@@ -143,10 +143,11 @@ Inside a session, `RING2_CONFIG` and `RING2_ROLE` are set, so the session can ru
 without flags. To look at a session and leave again: `codex resume <thread> --remote <endpoint>`.
 
 A role with `"provider": "claude"` and a Claude model (for example `"model": "claude-sonnet-4-6"`)
-runs Claude Code headless (tested with 2.1.302). Set `claude` to override the binary and use `env`
-for its credentials and `CLAUDE_CONFIG_DIR`; `"resume": true` keeps its conversation over restarts.
-The adapter disables permission checks, MCP servers, account connectors, updates and telemetry,
-and ignores user/project settings and hooks. Status JSON includes `busy`. It waits for the CLI's
+runs Claude Code headless (tested with 2.1.302) using an existing subscription sign-in. Set `claude`
+to override the binary or `env` to set `CLAUDE_CONFIG_DIR`; `"resume": true` keeps its conversation
+over restarts. The adapter disables permission checks, configured MCP servers, updates and telemetry,
+and ignores user/project settings. It ends the role if startup reports an MCP server or permission
+checks. Status JSON includes `busy`. It waits for the CLI's
 user-message acknowledgment before advancing delivery. `claude attach` only finds background
 jobs, not these stream-driven sessions: stop the role before using `claude --resume <thread>`.
 
@@ -179,7 +180,7 @@ By design, or not built:
 
 - The core still holds a few Codex assumptions (what "delivered" and "last activity" mean, how a role's
   processes are recognised); `delivery` still carries a Codex queue sender for a session you run yourself.
-- The Claude adapter starts Claude Code in its minimal mode (`--bare`) to keep user settings and connectors out; whether that mode accepts a subscription sign-in or only an API key has not been tried.
+- With a real sign-in it is not yet verified that account connectors stay out; the start-up check ends the role if an MCP server loads.
 - Claude stream-driven sessions cannot be watched with `claude attach`; stop before interactive resume.
 - Claude delivery waits for the current turn; a stalled turn delays later messages.
 - `status` cannot tell a stopped role from a dead one, so `watch` restarts either once a message waits for it. Stop

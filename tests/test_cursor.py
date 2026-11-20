@@ -53,6 +53,19 @@ class CursorTest(unittest.TestCase):
             self.assertEqual(cursor.read_text(), '41')
             self.assertEqual(delivery.init_cursor(None, cursor), 41)  # the next loop starts where it should
 
+    def test_cursor_does_not_pass_an_unstarted_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cursor = Path(tmp) / 'role.cursor'
+            cursor.write_text('41')
+            target = mock.Mock(spec=Session)
+            target.started.return_value = False
+            batch = [{'sequence': number, 'channel': 'c', 'message': '@x hello'} for number in (42, 43)]
+            source = mock.Mock(side_effect=[batch, [], Cut()])
+            with self.assertRaises(Cut):
+                delivery.follow(source, lambda message: True, target, cursor, log=lambda line: None)
+            self.assertEqual(target.send.call_count, 2)
+            self.assertEqual(cursor.read_text(), '41')
+
     def test_a_first_cursor_is_written_whole_too(self):
         with tempfile.TemporaryDirectory() as tmp:
             cursor = Path(tmp) / 'state' / 'role.cursor'

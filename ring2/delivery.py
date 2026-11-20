@@ -33,6 +33,16 @@ def follow(source, wanted, target, cursor_path, log=print):
     target.own()
     cursor = sent = init_cursor(source, cursor_path)
     waiting = []  # sequences accepted by the session whose turn has not started yet
+
+    def advance():
+        nonlocal cursor
+        while waiting and target.started(marker(waiting[0])):
+            log(f'ring2 delivery: started {waiting.pop(0)}')
+        reached = waiting[0] - 1 if waiting else sent
+        if reached != cursor:
+            cursor = reached
+            save_cursor(cursor_path, cursor)
+
     while True:
         try:
             messages = source(sent, 2 if waiting else 25)
@@ -52,9 +62,5 @@ def follow(source, wanted, target, cursor_path, log=print):
                 log(f'ring2 delivery: accepted {sequence}')
                 waiting.append(sequence)
             sent = sequence
-        while waiting and target.started(marker(waiting[0])):
-            log(f'ring2 delivery: started {waiting.pop(0)}')
-        reached = waiting[0] - 1 if waiting else sent
-        if reached != cursor:
-            cursor = reached
-            save_cursor(cursor_path, cursor)
+            advance()
+        advance()

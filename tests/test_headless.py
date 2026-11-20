@@ -263,6 +263,39 @@ class HeadlessTest(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_TOOLS, 'needs codex and bd')
+class BatchCursorTest(unittest.TestCase):
+    def test_cursor_passes_each_started_message_before_the_next_send(self):
+        lab = Lab({'batch': ('implementer', 'BATCH-STARTUP')})
+        self.addCleanup(lab.close)
+        holds = {name: threading.Event() for name in ('BATCH-STARTUP', 'BATCH-FIRST', 'BATCH-SECOND')}
+        self.addCleanup(lambda: [event.set() for event in holds.values()])
+        lab.model.rules += [(name, 'hold', event) for name, event in holds.items()]
+
+        def deliveries(marker):
+            return [request for request in lab.requests_with(marker)
+                    if marker in lab.model.user_texts(request)[-1]]
+
+        # A retained cursor and three posts before start guarantee one fetched batch.
+        from ring2 import delivery
+        cursor = lab.root / 'state/batch.cursor'
+        delivery.save_cursor(cursor, 0)
+        sequences = [lab.post(f'@batch {marker}') for marker in ('BATCH-FIRST', 'BATCH-SECOND', 'BATCH-THIRD')]
+        lab.ring2('start', label='batch')
+        wait('startup held', lambda: deliveries('BATCH-STARTUP'))
+        holds['BATCH-STARTUP'].set()
+        wait('first turn held', lambda: deliveries('BATCH-FIRST'))
+        holds['BATCH-FIRST'].set()
+        wait('second turn held', lambda: deliveries('BATCH-SECOND'))
+        wait('cursor passes the first message', lambda: int(cursor.read_text()) >= sequences[0])
+        self.assertLess(int(cursor.read_text()), sequences[2])
+        self.assertFalse(deliveries('BATCH-THIRD'))
+        lab.ring2('restart', label='batch')
+        wait('third message after restart', lambda: deliveries('BATCH-THIRD'))
+        wait('cursor passes the batch', lambda: int(cursor.read_text()) == sequences[2])
+        self.assertEqual(len(deliveries('BATCH-FIRST')), 1, 'restart replayed an acknowledged message')
+
+
+@unittest.skipUnless(HAVE_TOOLS, 'needs codex and bd')
 class OwnPostTest(unittest.TestCase):
     def test_own_post_is_stored_and_passed_without_delivery(self):
         from ring2 import app, console

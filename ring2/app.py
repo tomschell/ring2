@@ -3,7 +3,7 @@
 Sessions:  start | stop | restart | status          (the --as role)
            fleet start | fleet stop                  (every role)
 Tasks:     task | claim | give-back TASK
-           review-pass TASK COMMIT | test TASK COMMIT COMMAND
+           review-pass TASK COMMIT | test TASK COMMIT [COMMAND]
            publish TASK COMMIT [--close] | close TASK [COMMIT] [--reason TEXT] [--confirm]
 Bus:       post CHANNEL TEXT | listen
 
@@ -291,7 +291,7 @@ def main(argv=None):
         task, commit = args
         print(ship.review_pass(ship_settings(cfg, label), commit, TaskEvidence(cfg, task), label))
     elif command == 'test':
-        task, commit, test_command = args
+        task, commit, test_command = (*args, None) if len(args) == 2 else args
         passed = ship.test(ship_settings(cfg, label), commit, test_command, TaskEvidence(cfg, task), label)
         print('TEST PASS' if passed else 'TEST FAIL')
         return 0 if passed else 1

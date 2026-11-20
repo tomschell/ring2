@@ -156,6 +156,20 @@ class ShipAloneTest(Plain):
         self.assertEqual([text.split()[1] for _, text in notes.read()], ['PASS', 'FAIL'])
         self.assertFalse(ship.tested(commit, notes))
 
+    def test_no_test_skips_only_the_test_check(self):
+        origin, repo, commits = self.clone()
+        commit = commits[1]
+        command = ('ship', '--repo', str(repo), '--branch', 'trunk', '--reviewer', 'rae')
+        self.assertIn('no passing test result',
+                      self.module(*command, '--no-review', 'publish', commit, check=False).stderr)
+        self.assertIn('no reviewer PASS',
+                      self.module(*command, '--no-test', 'publish', commit, check=False).stderr)
+        self.module(*command, '--as', 'rae', 'pass', commit)
+        self.assertEqual(self.module(*command, '--no-test', 'publish', commit).stdout.strip(), 'published')
+        self.assertEqual(self.run_('git', '--git-dir', str(origin), 'rev-parse', 'refs/heads/trunk').stdout.strip(), commit)
+        notes = self.run_('git', 'notes', '--ref', 'ring2', 'show', commit, cwd=repo).stdout
+        self.assertEqual(notes.strip(), f'rae: PASS {commit}')
+
     def test_publish_with_no_tracker(self):
         origin, repo, commits = self.clone()
         commit = commits[1]

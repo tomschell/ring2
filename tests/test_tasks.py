@@ -349,5 +349,48 @@ class TasksServerTest(TasksTest):
     BD_MODE = 'server'
 
 
+@unittest.skipUnless(HAVE_TOOLS, 'needs codex and bd')
+class TestCommandSettingTest(unittest.TestCase):
+    def setUp(self):
+        self.lab = Lab({'impl': ('implementer', 'unused'), 'rev': ('reviewer', 'unused')})
+        self.addCleanup(self.lab.close)
+
+    def test_configured_command_is_required_for_execution_and_publish(self):
+        lab = self.lab
+        task = lab.task('Configured test command')
+        commit = lab.commit('impl', 'required.txt', 'required\n')
+        lab.run('git', 'fetch', '-q', str(lab.work['impl']), commit, cwd=lab.work['rev'])
+        lab.ring2('test', task, commit, 'true', label='impl')
+        lab.ring2('review-pass', task, commit, label='rev')
+        config = lab.write_config('fixed-test.json', test_command='test -f required.txt')
+        before, tip = lab.comments(task), lab.origin_main()
+        marker = lab.root / 'wrong-command-ran'
+        refused = lab.ring2('test', task, commit, f'touch {marker}', label='impl', config=config, check=False)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn('the test command is set in the config', refused.stderr)
+        self.assertFalse(marker.exists())
+        self.assertEqual(lab.comments(task), before)
+        refused = lab.ring2('publish', task, commit, label='impl', config=config, check=False)
+        self.assertIn('no passing test result', refused.stderr)
+        self.assertEqual(lab.origin_main(), tip)
+        self.assertEqual(lab.ring2('test', task, commit, label='impl', config=config).stdout.strip(), 'TEST PASS')
+        self.assertIn(f'`test -f required.txt`', lab.comments(task)[-1][1])
+        self.assertEqual(lab.ring2('publish', task, commit, label='impl', config=config).stdout.strip(), 'published')
+        self.assertEqual(lab.origin_main(), commit)
+
+    def test_no_test_setting_keeps_review_required(self):
+        lab = self.lab
+        task = lab.task('No test required')
+        commit = lab.commit('impl', 'without-test.txt', 'done\n')
+        config = lab.write_config('no-test.json', test_required=False, test_command='exit 1')
+        refused = lab.ring2('publish', task, commit, label='impl', config=config, check=False)
+        self.assertIn('no reviewer PASS', refused.stderr)
+        lab.run('git', 'fetch', '-q', str(lab.work['impl']), commit, cwd=lab.work['rev'])
+        lab.ring2('review-pass', task, commit, label='rev')
+        self.assertEqual(lab.ring2('publish', task, commit, label='impl', config=config).stdout.strip(), 'published')
+        self.assertEqual(lab.origin_main(), commit)
+        self.assertEqual(lab.comments(task), [('rev', f'PASS {commit}')])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -51,6 +51,18 @@ class EvidenceGrammarTest(unittest.TestCase):
         self.assertTrue(self.result(f'TEST FAIL (exit 1) {CANDIDATE} `t`', f'TEST PASS {CANDIDATE} `t`',
                                     f'TEST FAIL (exit 1) {OTHER} `echo {CANDIDATE}`'))
 
+    def test_only_the_configured_command_results_count(self):
+        lines = Lines(('ann', f'TEST PASS {CANDIDATE} `true`'))
+        self.assertFalse(ship.tested(CANDIDATE, lines, 'make test'))
+        lines.lines.append(('ann', f'TEST PASS {CANDIDATE} `make test` (run 2026-11-20T00:00:00.000000Z)'))
+        self.assertTrue(ship.tested(CANDIDATE, lines, 'make test'))
+        lines.lines.append(('ann', f'TEST FAIL (exit 1) {CANDIDATE} `true`'))
+        self.assertTrue(ship.tested(CANDIDATE, lines, 'make test'))
+        lines.lines.append(('ann', f'TEST FAIL (exit 2) {CANDIDATE} `make test`'))
+        self.assertFalse(ship.tested(CANDIDATE, lines, 'make test'))
+        self.assertFalse(ship.tested(CANDIDATE, Lines(('ann',
+            f'TEST PASS {CANDIDATE} `make test` (run other shell command)` (run 2026-11-20T00:00:00.000000Z)')), 'make test'))
+
 
 class UnreadableNotesTest(unittest.TestCase):
     def read(self, returncode, stderr, stdout=''):

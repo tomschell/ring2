@@ -2,7 +2,7 @@
 chosen git branch. Needs only git.
 
 Settings: repo, remote (default origin), branch (default main), reviewers
-(labels whose PASS counts), review_required (default true).
+(labels whose PASS counts), review_required and test_required (default true), test_command (optional).
 
 Evidence is prose lines, each with an author:
   TEST PASS <commit> `<command>` (run <time>)   |   TEST FAIL (exit N) <commit> ...
@@ -15,7 +15,7 @@ publish returns 'published' or 'already published'. Refused means the branch
 was not touched; Unconfirmed means the push was sent and its outcome is not
 known. Either way a rerun never moves the branch twice.
 
-  python3 -m ring2.ship --repo DIR --as LABEL [--reviewer LABEL] [--no-review]
+  python3 -m ring2.ship --repo DIR --as LABEL [--reviewer LABEL] [--no-review] [--no-test]
         test COMMIT COMMAND | pass COMMIT | publish COMMIT | published COMMIT
 """
 import argparse
@@ -72,6 +72,12 @@ def test(settings, commit, command, evidence, author):
     repository's git directory, replaced on every run: nothing piles up, and
     whatever a killed run left behind is cleared by the next one.
     """
+    configured = settings.get('test_command')
+    if configured is not None:
+        if command is not None and command != configured:
+            raise Refused('ring2: the test command is set in the config')
+        command = configured
+    need({'command': command}, 'test', 'command')
     commit = full(settings, commit)
     checkout = Path(git(settings, 'rev-parse', '--path-format=absolute', '--git-common-dir')) / 'ring2-test' / author
     checkout.parent.mkdir(exist_ok=True)
@@ -152,11 +158,15 @@ TEST_LINE = re.compile(r'TEST (PASS|FAIL \(exit -?\d+\)) ([0-9a-f]{40})(?![0-9a-
 PASS_LINE = re.compile(r'PASS ([0-9a-f]{40})(?![0-9a-f])')
 
 
-def tested(commit, evidence):
-    """The newest test result for this commit decides. A result is a line that
-    starts `TEST PASS <commit>` or `TEST FAIL (exit N) <commit>`."""
-    results = [found.group(1) for found in (TEST_LINE.match(text) for _, text in evidence.read())
-               if found and found.group(2) == commit]
+def tested(commit, evidence, command=None):
+    """The newest matching result for this commit decides. With a command set,
+    only results naming exactly that command count; otherwise keep the existing grammar."""
+    results = []
+    for _, text in evidence.read():
+        found = TEST_LINE.match(text)
+        if found and found.group(2) == commit and (command is None or re.fullmatch(
+                re.escape(f' `{command}`') + r'(?: \(run [0-9T:.-]+Z\))?', text[found.end():])):
+            results.append(found.group(1))
     return bool(results) and results[-1] == 'PASS'
 
 
@@ -178,7 +188,7 @@ def has_pass(settings, commit, evidence):
 def publish(settings, commit, evidence):
     """Fast-forward the target branch to exactly `commit`."""
     commit, (remote, branch) = full(settings, commit), target(settings)
-    if not tested(commit, evidence):
+    if settings.get('test_required', True) and not tested(commit, evidence, settings.get('test_command')):
         raise Refused(f'ring2: not published: no passing test result for {commit}')
     if settings.get('review_required', True) and not has_pass(settings, commit, evidence):
         raise Refused(f'ring2: not published: no reviewer PASS for {commit}')
@@ -208,13 +218,14 @@ def main(argv=None):
     parser.add_argument('--branch')
     parser.add_argument('--reviewer', action='append')
     parser.add_argument('--no-review', action='store_true')
+    parser.add_argument('--no-test', action='store_true')
     parser.add_argument('--as', dest='label')
     parser.add_argument('command', choices=['test', 'pass', 'publish', 'published'])
     parser.add_argument('commit')
     parser.add_argument('test_command', nargs='?')
     opts = parser.parse_args(argv)
     settings = {'repo': opts.repo, 'remote': opts.remote, 'branch': opts.branch,
-                'reviewers': opts.reviewer, 'review_required': not opts.no_review}
+                'reviewers': opts.reviewer, 'review_required': not opts.no_review, 'test_required': not opts.no_test}
     need(settings, 'ship', 'repo')
     evidence = GitNotes(settings, opts.commit)
     if opts.command == 'published':

@@ -61,6 +61,56 @@ What goes in:
 What ring2 deliberately does not do: per-start folders, kept test checkouts, handoff notes, grants, a role identity
 that changes on restart, or guidance a role must read before it can work.
 
+## Settings
+
+JSON keys below belong to the app config unless marked as role fields or standalone inputs.
+Service options use `module.option`; uppercase names are environment variables. Command arguments
+(such as a task, commit, sender or close reason) are not saved settings.
+
+| Setting | Default | Use |
+|---|---|---|
+| `home` | unset | Stable fleet root containing `repo`, `work/<label>` and `state`; relative to the config file. |
+| `origin` | unset | Repository URL/path needed to create managed home worktrees and their shared clone. |
+| `state_dir` | `home/state`, otherwise `state` beside the config | Session handles, locks, logs, specs and delivery cursors. |
+| `roles` | empty map | Role entries keyed by their stable labels. |
+| `role` | required for managed roles | Role field: job type; `reviewer` identifies whose PASS counts. |
+| `provider` | required | Role field: adapter filename under `ring2/providers/`, without `.py`. |
+| `model` | required for managed roles | Role field (also standalone session input): provider model name. |
+| `brief` | required for managed roles | Role field: first-prompt instructions. |
+| `workdir` | `home/work/<label>`, otherwise required | Role field (also standalone session input): working directory; outside roles need none. |
+| `resume` | false | Role field: keep the previous conversation on restart; standalone sessions take a thread ID instead. |
+| `env` | empty map | Extra provider environment; standalone session specs can also override individual values. |
+| `codex` | `codex` | Codex adapter executable. |
+| `claude` | `claude` | Claude Code adapter executable. |
+| `ring_url` | unset | Bus server URL; needed by bus commands, delivery, listen and fleet start. |
+| `channels` | unset | Bus channels followed by delivery, listen and fleet start. |
+| `ready_seconds` | 60 | Seconds fleet start waits for READY replies. |
+| `tracker_dir` | unset | bd tracker directory; needed by task commands. |
+| `queue_label` | `queue` | Label selecting unassigned open tasks for claim. |
+| `remote` | `origin` | Git publication remote; standalone ship uses `--remote`. |
+| `branch` | `main` | Git publication branch; standalone ship uses `--branch`. |
+| `test_command` | unset | Fix the test command; a CLI override must match, and publish accepts only results for this command. |
+| `test_required` | true | Require a passing test before publish; standalone ship's `--no-test` disables only this check. |
+| `review_required` | true | Require a reviewer PASS before publish; standalone ship's `--no-review` disables only this check. |
+| `repo` | role workdir in the app; required standalone | Standalone ship repository (`--repo`). |
+| `reviewers` | app's reviewer roles; empty standalone | Standalone ship labels whose PASS counts (repeat `--reviewer`). |
+| `sessions` | empty map | Standalone session entries keyed by name. |
+| `prompt` | required standalone | Standalone session's first prompt; the app builds it from the role brief and task. |
+| `source` | unset | Optional standalone session bus input mapping; absent means no delivery. |
+| `source.label` | required with `source` | Standalone delivery recipient label. |
+| `source.cursor` | required with `source` | Standalone delivery cursor file. |
+| `busd.host` | `RING_HOST` or `127.0.0.1` | Bus server bind address (`--host`). |
+| `busd.port` | `RING_PORT` or 8770 | Bus server port (`--port`). |
+| `busd.db` | `RING_DB` or `~/.local/share/ring2/bus.db` | Bus SQLite file (`--db`). |
+| `watch.interval` | 5 | Seconds between watch checks (`--interval`). |
+| `watch.backoff` | 30 | Initial restart delay in seconds, doubling up to 600 (`--backoff`). |
+| `console.port` | 8780 | Loopback console port (`--port`). |
+| `RING2_CONFIG` | unset | App's default `--config`; set inside managed sessions. |
+| `RING2_ROLE` | unset | App's default `--as`; set inside managed sessions. |
+| `RING_HOST` | unset | Overrides the bus server's default bind address. |
+| `RING_PORT` | unset | Overrides the bus server's default port. |
+| `RING_DB` | unset | Overrides the bus server's default database file. |
+
 ## Quick start
 
 All commands run from the clone's top directory. Each part also runs alone.
@@ -103,7 +153,8 @@ The test runs in a clean checkout of exactly that commit: one checkout and one o
 author inside the repository's git directory, replaced by every run, keeping the last 200 lines of
 output. Evidence is kept as git notes (ref `ring2`) on the commit. A PASS is a reviewer's line that
 starts `PASS <full commit>`; a test result is a line that starts `TEST PASS <full commit>`
-and ends with the time of that run, so every run is its own line and the newest decides. `--remote` and `--branch` choose the target; `--no-review` skips the PASS.
+and ends with the time of that run, so every run is its own line and the newest matching result decides.
+With a configured test command, the app also accepts `test <task> <commit>` without a command argument.
 An error starting "not published" means the branch was not touched; "could not confirm whether
 this happened" means the push was sent and its outcome is unknown. Rerunning is safe either way.
 
@@ -136,15 +187,7 @@ python3 -m ring2.watch --config ring2.json &
 python3 -m ring2.console --config ring2.json --port 8780 &
 ```
 
-Instead of a `workdir` per role you can give the fleet one fixed home:
-
-```
-{"home": "/path/to/fleet", "origin": "/path/or/url/of/the/repository", ...}
-```
-
-`home/repo` is one shared clone, `home/work/<label>` a linked git worktree per role, `home/state` the
-state files. They are made if missing and reused by every start; nothing is created per start. In a
-home, a won `claim` puts the role's directory on a fresh branch `task/<id>` from the published
+In a fleet home, a won `claim` puts the role's directory on a fresh branch `task/<id>` from the published
 branch. It refuses first, changing nothing, while the directory has uncommitted changes or commits
 that are on no remote ref. That is the one lost-work check; ring2 has no other. A claim cut before the
 branch was made leaves the task held; the next `claim`, or the role's next start, puts the directory
@@ -152,22 +195,19 @@ on the branch under the same check, and leaves a task branch it is already on un
 
 Here the evidence is kept as comments on the task. A role keeps its label, folder and task across a
 restart (`--as ann restart`); to add a role, add its entry and start it; nothing else is restarted.
-Inside a session, `RING2_CONFIG` and `RING2_ROLE` are set, so the session can run the same commands
-without flags. To look at a session and leave again: `codex resume <thread> --remote <endpoint>`.
+To look at a session and leave again: `codex resume <thread> --remote <endpoint>`.
 
 A role with `"provider": "claude"` and a Claude model (for example `"model": "claude-sonnet-4-6"`)
-runs Claude Code headless (tested with 2.1.302) using an existing subscription sign-in. Set `claude`
-to override the binary or `env` to set `CLAUDE_CONFIG_DIR`; `"resume": true` keeps its conversation
-over restarts. The adapter disables permission checks, configured MCP servers, updates and telemetry,
+runs Claude Code headless (tested with 2.1.302) using an existing subscription sign-in. The adapter
+disables permission checks, configured MCP servers, updates and telemetry,
 and sets `ENABLE_CLAUDEAI_MCP_SERVERS=false` to keep account connectors from loading,
 and ignores user/project settings. It ends the role if startup reports an MCP server or permission
 checks. Status JSON includes `busy`. It waits for the CLI's
 user-message acknowledgment before advancing delivery. `claude attach` only finds background
 jobs, not these stream-driven sessions: stop the role before using `claude --resume <thread>`.
 
-A role with `"provider": "external"` represents a person or an outside session and needs no model,
-brief or working directory. Start its listener with `ring2 --as <label> listen` (and `--config`
-if needed). It prints one line per addressed message and keeps the role's normal delivery cursor,
+For a person or an outside session, use `"provider": "external"`. Start its listener with
+`ring2 --as <label> listen` (and `--config` if needed). It prints one line per addressed message and keeps the role's normal delivery cursor,
 including messages waiting before the first listen. Status and the console show whether it is
 listening and whether a message waits. Stop the listener itself to leave; start, stop, restart,
 fleet and watch leave it alone.

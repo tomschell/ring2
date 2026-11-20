@@ -4,8 +4,7 @@
 
 Optional: nothing else in ring2 imports this file. One loop, one check, one
 action. Every `interval` seconds it reads `status` (ring2.app.status). A role
-that has a session handle, whose delivery loop (tmux form) or runner
-(headless) is not running, and that has a bus message addressed to it beyond
+that has a session handle, whose runner is not running, and that has a bus message addressed to it beyond
 its cursor, is restarted through the ordinary restart path; the successor
 delivers the message, and watch posts one line on the first channel.
 

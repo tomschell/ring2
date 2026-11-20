@@ -14,9 +14,9 @@ module's settings (a task command needs tracker_dir and nothing about Codex).
                    and the state files. Made if missing, reused by every start.
                    A role with its own `workdir` is left alone.
   roles            {label: {role, provider, model, brief, workdir}}; role is
-                   "implementer" or "reviewer"; "headless": true runs the role
-                   without tmux or a TUI, "resume": true keeps its thread over a restart
-  state_dir, tmux_socket, codex, env                 sessions (provider checks always off)
+                   "implementer" or "reviewer"; "resume": true keeps its thread over a restart.
+                   An existing "headless" value is accepted and ignored.
+  state_dir, codex, env                 sessions (provider checks always off)
   ring_url, channels, ready_seconds                  bus, delivery, fleet start
   tracker_dir, queue_label                           tasks
   remote, branch, review_required                    ship (repo is the role's workdir)
@@ -30,7 +30,7 @@ import sys
 import time
 from pathlib import Path
 
-from ring2 import Refused, bus, delivery, headless, need, sessions, ship, tasks
+from ring2 import Refused, bus, delivery, headless, need, read_handle, ship, tasks
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -44,7 +44,6 @@ def load(path):
         cfg['home'] = str((path.parent / cfg['home']).resolve())
         cfg.setdefault('state_dir', str(Path(cfg['home']) / 'state'))
     cfg.setdefault('state_dir', str(path.parent / 'state'))
-    cfg.setdefault('tmux_socket', 'ring2')
     return cfg
 
 
@@ -133,22 +132,12 @@ def start(cfg, label):
         delivery.init_cursor(lambda after, wait: bus.events(cfg, after, wait), cursor_path(cfg, label))
     spec = {'model': entry['model'], 'workdir': where, 'prompt': prompt,
             'env': {'RING2_CONFIG': cfg['path'], 'RING2_ROLE': label}}
-    if entry.get('headless'):  # the runner is session and delivery loop in one
-        previous = sessions.handle(cfg, label) or {}
-        state = headless.start(session_settings(cfg), label, {
-            **spec, 'resume': entry.get('resume') and previous.get('thread'),
-            'source': following and {'ring_url': cfg['ring_url'], 'channels': cfg['channels'], 'label': label,
-                                     'cursor': str(cursor_path(cfg, label))}})
-        print(f'started {label}: headless pid {state["pid"]}, thread {state["thread"]}')
-        return state
-    state = sessions.start(cfg, label, spec)
-    if following:
-        sessions.add_window(cfg, state, 'follow', [
-            'env', f'PYTHONPATH={ROOT}', sys.executable, '-m', 'ring2.delivery', '--ring-url', cfg['ring_url'],
-            *[arg for channel in cfg['channels'] for arg in ('--channel', channel)], '--as', label,
-            '--endpoint', state['endpoint'], '--thread', state['thread'], '--rollout', state['rollout'],
-            '--codex', state['codex'], '--cursor', str(cursor_path(cfg, label))])
-    print(f'started {label}: tmux ring2-{label} ({state["tmux_session"]}), thread {state["thread"]}')
+    previous = read_handle(cfg, label) or {}
+    state = headless.start(session_settings(cfg), label, {
+        **spec, 'resume': entry.get('resume') and previous.get('thread'),
+        'source': following and {'ring_url': cfg['ring_url'], 'channels': cfg['channels'], 'label': label,
+                                 'cursor': str(cursor_path(cfg, label))}})
+    print(f'started {label}: headless pid {state["pid"]}, thread {state["thread"]}')
     return state
 
 
@@ -157,15 +146,15 @@ def session_settings(cfg):
 
 
 def stop(cfg, label):
-    kind = headless if role(cfg, label).get('headless') else sessions
-    print(f'stopped {label}' if kind.stop(cfg, label) else f'{label} is not running')
+    role(cfg, label)
+    print(f'stopped {label}' if headless.stop(cfg, label) else f'{label} is not running')
 
 
 def status(cfg):
     """One plain dict per role, read through the modules' public functions; no store of its own.
 
-      session    the Codex session is running (tmux form: its tmux session; headless: its app-server)
-      loop       what delivers bus messages is running (tmux form: the delivery loop; headless: the runner)
+      session    the Codex app-server is running
+      loop       the runner delivering bus messages is running
       tasks      ids the tracker says the role holds (absent with no tracker)
       active     when the session's rollout file, else the delivery cursor, last changed (unix time), and
       active_source  which of the two that was
@@ -176,12 +165,9 @@ def status(cfg):
     retained = bus.events(cfg, 0, wait=0) if following else []
     rows = []
     for label, entry in cfg.get('roles', {}).items():
-        state, cursor = sessions.handle(cfg, label) or {}, cursor_path(cfg, label)
-        if entry.get('headless'):
-            row = {'session': bool(state.get('token') and owned_processes([token_setting(state['token'])])),
-                   'loop': headless.running(cfg, label)}
-        else:
-            row = {'session': sessions.running(cfg, label), 'loop': bool(owned_processes([f'--cursor {cursor}']))}
+        state, cursor = read_handle(cfg, label) or {}, cursor_path(cfg, label)
+        row = {'session': bool(state.get('token') and owned_processes([token_setting(state['token'])])),
+               'loop': headless.running(cfg, label)}
         row = {'label': label, 'role': entry.get('role'), **row}
         if cfg.get('tracker_dir'):
             row['tasks'] = [issue['id'] for issue in tasks.mine(cfg, label)]
@@ -284,8 +270,8 @@ def main(argv=None):
         rows = status(cfg)
         print(json.dumps(rows, indent=1) if opts.json else status_text(rows))
     elif command == 'status':
-        kind = headless if role(cfg, label).get('headless') else sessions
-        print(json.dumps({'running': kind.running(cfg, label), 'state': sessions.handle(cfg, label)}, indent=1))
+        role(cfg, label)
+        print(json.dumps({'running': headless.running(cfg, label), 'state': read_handle(cfg, label)}, indent=1))
     elif command == 'claim':
         print(claim(cfg, label))
     elif command in ('task', 'give-back'):

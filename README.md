@@ -2,7 +2,7 @@
 
 ring2 runs AI coding sessions (Codex) and gives them a message bus and a task queue.
 It is five small modules; each works alone, and they meet only at plain data.
-Sessions run in tmux with a TUI, or headless with no terminal at all.
+Sessions run headless with no terminal.
 Tasks live in a `bd` tracker; evidence and publication are plain comments and plain git.
 It is an experiment: small, tested against a mock model, not yet run against a real provider.
 
@@ -23,9 +23,8 @@ ring2 always marks the working folder of a role as trusted for the Codex app-ser
 |---|---|---|---|
 | `ring2.busd` | the bus server: retained one-line messages per channel, over HTTP, in one SQLite file | Python 3 (tested with 3.12) | nothing |
 | `ring2.bus` | post a message; watch for messages naming `@label` or `@all` | Python | the bus server |
-| `ring2.sessions` | start, stop, restart named Codex sessions in tmux (app-server + TUI) | tmux, codex | nothing |
-| `ring2.headless` | the same with no tmux and no TUI; a runner owns the thread and takes one message per turn | codex | nothing (a bus server if it should receive messages) |
-| `ring2.delivery` | gets bus messages into a running Codex session without interrupting its turn | codex | the bus server; a Codex app-server with a thread (yours or one `ring2.sessions` started) |
+| `ring2.headless` | start, stop, restart named Codex sessions; a runner owns the thread and takes one message per turn | codex | nothing (a bus server if it should receive messages) |
+| `ring2.delivery` | gets bus messages into a running Codex session without interrupting its turn | codex | the bus server; a Codex app-server with a thread (yours or one ring2 started) |
 | `ring2.tasks` | queue, atomic claim, give-back, comments, labels, close | bd | embedded bd: nothing. Server-mode bd: the Dolt sql-server the tracker points at |
 | `ring2.ship` | test result for a commit, reviewer PASS, fast-forward of a chosen branch | git | nothing; the remote is any git URL or path |
 | `ring2` (`app.py`) | the modules assembled, from one JSON config file; `status` | all of the above | the bus server |
@@ -85,21 +84,19 @@ and ends with the time of that run, so every run is its own line and the newest 
 An error starting "not published" means the branch was not touched; "could not confirm whether
 this happened" means the push was sent and its outcome is unknown. Rerunning is safe either way.
 
-### Sessions (tmux + codex)
+### Sessions (codex)
 
 ```
 cat > sessions.json <<'EOF'
-{"tmux_socket": "demo", "state_dir": "/tmp/demo-state",
+{"state_dir": "/tmp/demo-state",
  "sessions": {"ann": {"model": "<model>", "workdir": "/path/to/repo", "prompt": "Your brief."}}}
 EOF
-python3 -m ring2.sessions --config sessions.json start ann     # prints the handle: endpoint, thread, token
-tmux -L demo attach -t ring2-ann
-python3 -m ring2.sessions --config sessions.json restart ann
-python3 -m ring2.sessions --config sessions.json stop ann
+python3 -m ring2.headless --config sessions.json start ann     # prints the handle: endpoint, thread, token
+python3 -m ring2.headless --config sessions.json restart ann
+python3 -m ring2.headless --config sessions.json stop ann
 ```
 
-`python3 -m ring2.headless --config sessions.json start ann` does the same without tmux. To look
-at a headless session and leave again: `codex resume <thread> --remote <endpoint>`.
+To look at a session and leave again: `codex resume <thread> --remote <endpoint>`.
 
 ### Delivery (attach to a Codex session you already run)
 
@@ -155,8 +152,8 @@ on the branch under the same check, and leaves a task branch it is already on un
 `status` shows a dead role the same whether it died or was stopped, so `watch` restarts either once
 a message is waiting for it. Stop watch before stopping a role you want to stay down.
 
-Here the evidence is kept as comments on the task. Add `"headless": true` to a role to run it
-without tmux. Inside a session, `RING2_CONFIG` and `RING2_ROLE` are set, so the session can run the
+Here the evidence is kept as comments on the task. Every role runs headless; existing `headless`
+values are accepted and ignored. Inside a session, `RING2_CONFIG` and `RING2_ROLE` are set, so the session can run the
 same commands without flags.
 
 ## Tests
@@ -175,9 +172,9 @@ and takes several minutes.
 - With a viewer attached to a role (`codex resume <thread> --remote <endpoint>`), typed input submitted while a turn started by a channel message is running is added by Codex to that same turn. In the real-provider trial, the model answered only the typed input and never acted on the channel message in 3 of 3 tries; ring2 does not deliver the message again because its turn had started. Watching without typing, and typing while the role is idle, were unaffected.
 - Never run against a real provider: sign-in, a Codex home shared by several roles, long real turns.
 - Only Codex. A Claude session needs its own session and delivery classes.
-- `watch` handles one case (delivery dead, message waiting) and was run against a killed headless runner only. A dead tmux delivery loop takes the same path but was not run. Nothing restarts watch itself.
-- `status` cannot tell a stopped role from a dead one, cannot see a session that is alive but stuck, and its "last activity" is the change time of the session's rollout file (tmux form) or of the delivery cursor (headless).
-- Trial cases not covered by a test: a person typing in an attached TUI at the instant a headless bus message starts a turn; a delivery loop killed between `codex queue` accepting a message and the cursor passing it (the design resends it; not run); stop during a long tool run in headless form (run for the tmux form only).
+- `watch` handles one case (delivery dead, message waiting) and was run against a killed headless runner only. Nothing restarts watch itself.
+- `status` cannot tell a stopped role from a dead one, cannot see a session that is alive but stuck, and its "last activity" is the change time of the delivery cursor.
+- Trial cases not covered by a test: a person typing in an attached TUI at the instant a headless bus message starts a turn; a delivery loop killed between `codex queue` accepting a message and the cursor passing it (the design resends it; not run); stop during a long tool run.
 - In a fleet home, a role that gives a task back with unpushed commits cannot claim again until it pushes or discards them.
 - Codex's own session files under its home grow with every thread; ring2 does not prune them.
 - The bus keeps 64 messages per channel. A session that falls further behind misses the rest.

@@ -25,7 +25,7 @@ class HeadlessTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.lab = lab = Lab({ROLE: ('implementer', 'FIRST-BRIEF: you are the experiment. CHECK-WORKDIR',
-                                    {'headless': True})})
+                                    {'headless': False})})
         cls.addClassCleanup(lab.close)
         cls.work = lab.work[ROLE]
         cls.resuming = lab.write_config('resume.json', roles={

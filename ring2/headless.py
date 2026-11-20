@@ -1,6 +1,5 @@
 """Headless sessions: a Codex app-server with no TUI and no tmux, driven by a
-runner process that owns the thread. A second kind of session beside
-`ring2.sessions`, with its own kind of delivery; needs only the codex CLI.
+runner process that owns the thread. Needs only the codex CLI.
 
 The runner starts `codex app-server`, opens a thread over the app-server's
 JSON-RPC (WebSocket), runs the startup prompt as the first turn, then takes
@@ -203,7 +202,7 @@ def run(spec_path, token):
     endpoint = f'ws://127.0.0.1:{port}'
     server = subprocess.Popen([codex, 'app-server', '--listen', endpoint, '-c', 'check_for_update_on_startup=false',
                                '-c', token_setting(token),  # found by stop even if this runner dies right now
-                               '-c', trust_setting(spec['workdir'])],  # as the tmux form, whose TUI would ask
+                               '-c', trust_setting(spec['workdir'])],  # trust this session's working folder
                               cwd=spec['workdir'], env={**os.environ, **settings.get('env', {}), **spec.get('env', {})})
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:

@@ -33,7 +33,7 @@ class FleetTest(unittest.TestCase):
                   ready_seconds=20)
         self.addCleanup(lab.close)
         lab.model.rules.append(('fleet start: post', 'fn', answer_ready))
-        lab.tmux('new-session', '-d', '-s', 'ring2-taken', 'sleep 600')  # this role cannot start
+        lab.ring2('start', label='taken')  # this role is already running
 
         result = lab.ring2('fleet', 'start', check=False)
         lines = result.stdout.splitlines()
@@ -53,7 +53,7 @@ class FleetTest(unittest.TestCase):
         self.assertTrue(posted)
 
         lab.ring2('fleet', 'stop')
-        self.assertEqual(lab.tmux('list-sessions', '-F', '#{session_name}'), 'ring2-taken')
+        self.assertFalse(json.loads(lab.ring2('status', label='taken').stdout)['running'])
 
 
 if __name__ == '__main__':

@@ -106,7 +106,7 @@ class Lab:
             'roles': {label: {'role': role, 'provider': 'codex', 'model': 'gpt-6-astra', 'brief': brief,
                               'workdir': str(self.work[label]), **dict(*more)}
                       for label, (role, brief, *more) in roles.items()},
-            'tmux_socket': self.socket, 'ring_url': f'http://127.0.0.1:{ring_port}', 'channels': ['exp'],
+            'ring_url': f'http://127.0.0.1:{ring_port}', 'channels': ['exp'],
             'tracker_dir': str(self.tracker), 'codex': str(self.shims / 'codex'),
             'env': {'CODEX_HOME': str(self.home / 'codex')}, **settings}
         self.config = self.write_config('ring2.json')

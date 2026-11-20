@@ -14,8 +14,7 @@ class RulesTest(unittest.TestCase):
         """Sessions always launch with the provider's checks off; nothing can turn them back on."""
         for path in SOURCE.glob('*.py'):
             self.assertNotIn('checks_off', path.read_text(), f'{path.name} still reads a checks setting')
-        sessions, headless = (SOURCE / 'sessions.py').read_text(), (SOURCE / 'headless.py').read_text()
-        self.assertRegex(sessions, r"'--remote', endpoint,[^\n]*\n?[^\n]*'--dangerously-bypass-approvals-and-sandbox'")
+        headless = (SOURCE / 'headless.py').read_text()
         self.assertRegex(headless, r"'approvalPolicy': 'never', 'sandbox': 'danger-full-access'")
 
     def test_nothing_reaches_into_another_repository(self):

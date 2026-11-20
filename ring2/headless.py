@@ -247,7 +247,7 @@ def start(settings, name, spec):
                                 'thread': (read_handle(settings, name) or {}).get('thread')})
         spec_path = state_dir / f'{name}.spec.json'
         spec_path.write_text(json.dumps({**spec, 'name': name, 'settings': settings}, indent=1))
-        log = open(state_dir / f'{name}.log', 'a')
+        log = open(state_dir / f'{name}.log', 'w')  # one log per name, replaced by each start
         runner = subprocess.Popen([sys.executable, '-m', 'ring2.headless', 'run', str(spec_path), token],
                                   env={**os.environ, 'PYTHONPATH': str(ROOT)}, cwd=spec['workdir'],
                                   stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)

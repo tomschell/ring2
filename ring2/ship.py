@@ -19,9 +19,10 @@ known. Either way a rerun never moves the branch twice.
         test COMMIT COMMAND | pass COMMIT | publish COMMIT | published COMMIT
 """
 import argparse
+import fcntl
 import re
+import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 
 from ring2 import Refused, effect, need
@@ -64,18 +65,76 @@ class GitNotes:
 
 
 def test(settings, commit, command, evidence, author):
-    """Run `command` in a clean checkout of `commit` and record the result. True if it passed."""
+    """Run `command` in a clean checkout of `commit` and record the result. True if it passed.
+
+    One checkout and one output file per author, at a fixed place inside the
+    repository's git directory, replaced on every run: nothing piles up, and
+    whatever a killed run left behind is cleared by the next one.
+    """
     commit = full(settings, commit)
-    with tempfile.TemporaryDirectory(prefix='ring2-test-') as tmp:
-        checkout = str(Path(tmp) / 'checkout')
-        git(settings, 'worktree', 'add', '--quiet', '--detach', checkout, commit)
+    checkout = Path(git(settings, 'rev-parse', '--path-format=absolute', '--git-common-dir')) / 'ring2-test' / author
+    checkout.parent.mkdir(exist_ok=True)
+    output = checkout.with_name(f'{author}.log')
+    with open(checkout.with_name(f'{author}.lock'), 'w') as lock:
         try:
-            code = subprocess.run(command, shell=True, cwd=checkout).returncode
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise Refused(f'ring2: not tested: {author} already has a test running in this repository') from None
+        try:
+            shutil.rmtree(checkout, ignore_errors=True)  # ring2's own checkout of a commit: nothing to save
+            git(settings, 'worktree', 'prune')
+            git(settings, 'worktree', 'add', '--quiet', '--detach', str(checkout), commit)
+            with open(output, 'w') as log:
+                code = subprocess.run(command, shell=True, cwd=checkout, stdout=log, stderr=subprocess.STDOUT).returncode
         finally:
-            git(settings, 'worktree', 'remove', '--force', checkout)
+            shutil.rmtree(checkout, ignore_errors=True)
+            git(settings, 'worktree', 'prune')
+    tail = output.read_text(errors='replace').splitlines()[-200:]
+    output.write_text('\n'.join(tail) + '\n' if tail else '')
+    if code:
+        print('\n'.join(tail + [f'(the last {len(tail)} lines of output; kept in {output} until the next test)']))
     result = 'PASS' if code == 0 else f'FAIL (exit {code})'
     evidence.add(author, f'TEST {result} {commit} `{command}`')
     return code == 0
+
+
+def unsaved(settings):
+    """What would be lost if this directory were reset or removed; [] if nothing.
+    Saved means committed and reachable from a ref of some remote."""
+    found, dirty = [], git(settings, 'status', '--porcelain')
+    if dirty:
+        found.append(f'{len(dirty.splitlines())} uncommitted change(s)')
+    ahead = git(settings, 'rev-list', 'HEAD', '--not', '--remotes').split()
+    if ahead:
+        found.append(f'{len(ahead)} commit(s) on no remote ref, newest {ahead[0][:12]}')
+    return found
+
+
+def fresh_branch(settings, name):
+    """Start `name` at the published branch. Refuses, changing nothing, while the directory holds unsaved work."""
+    remote, branch = target(settings)
+    git(settings, 'fetch', '--quiet', remote)
+    if lost := unsaved(settings):
+        raise Refused(f'ring2: {settings["repo"]} has unsaved work ({"; ".join(lost)}); '
+                      f'commit and push it, or discard it yourself')
+    left = git(settings, 'branch', '--show-current')
+    git(settings, 'switch', '--quiet', '--no-track', '-C', name, f'{remote}/{branch}')
+    if left != name and '/' in name and left.startswith(name.split('/')[0] + '/'):
+        # the previous branch of the same family; everything on it was just seen to be on a remote ref
+        git(settings, 'branch', '--quiet', '-D', left)
+    return name
+
+
+def worktree(settings, origin, path):
+    """A working directory at a stable path: one shared clone of `origin` at
+    settings['repo'] and a linked worktree at `path`, each made only if missing."""
+    remote, branch = target(settings)
+    if not Path(settings['repo'], '.git').exists():
+        effect(f'clone {origin}', ['git', 'clone', '--quiet', '--origin', remote, origin, settings['repo']])
+    if not Path(path, '.git').exists():
+        git(settings, 'worktree', 'prune')
+        git(settings, 'worktree', 'add', '--quiet', '--detach', str(path), f'{remote}/{branch}')
+    return str(path)
 
 
 TEST_LINE = re.compile(r'TEST (PASS|FAIL \(exit -?\d+\)) ([0-9a-f]{40})(?![0-9a-f])')

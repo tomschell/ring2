@@ -9,6 +9,10 @@ Bus:       post CHANNEL TEXT
 
 One JSON config file serves every module; each command needs only its own
 module's settings (a task command needs tracker_dir and nothing about Codex).
+  home, origin     optional: one fixed directory holding a shared clone of `origin`
+                   (home/repo), one linked worktree per role at home/work/<label>
+                   and the state files. Made if missing, reused by every start.
+                   A role with its own `workdir` is left alone.
   roles            {label: {role, provider, model, brief, workdir}}; role is
                    "implementer" or "reviewer"; "headless": true runs the role
                    without tmux or a TUI, "resume": true keeps its thread over a restart
@@ -36,6 +40,9 @@ def load(path):
     path = Path(path).resolve()
     cfg = json.loads(path.read_text())
     cfg['path'] = str(path)
+    if cfg.get('home'):  # one fixed fleet home: shared clone, a worktree per role, state; reused by every start
+        cfg['home'] = str((path.parent / cfg['home']).resolve())
+        cfg.setdefault('state_dir', str(Path(cfg['home']) / 'state'))
     cfg.setdefault('state_dir', str(path.parent / 'state'))
     cfg.setdefault('tmux_socket', 'ring2')
     return cfg
@@ -58,7 +65,30 @@ class TaskEvidence:
 
 def ship_settings(cfg, label):
     reviewers = [name for name, entry in cfg.get('roles', {}).items() if entry.get('role') == 'reviewer']
-    return {**cfg, 'repo': role(cfg, label).get('workdir'), 'reviewers': reviewers}
+    return {**cfg, 'repo': workdir(cfg, label), 'reviewers': reviewers}
+
+
+def workdir(cfg, label):
+    """The role's working directory: its own `workdir`, or a stable one under `home` named by the role."""
+    entry = role(cfg, label)
+    if entry.get('workdir') or not cfg.get('home'):
+        need(entry, f'role {label}', 'workdir')
+        return str(Path(entry['workdir']).resolve())
+    return str(Path(cfg['home']) / 'work' / label)
+
+
+def claim(cfg, label):
+    """Claim the next task. In a `home` directory a won task starts on a fresh
+    branch from the published one, so the directory must hold no unsaved work."""
+    managed = cfg.get('home') and not role(cfg, label).get('workdir')
+    settings = ship_settings(cfg, label)
+    if managed and not tasks.mine(cfg, label) and (lost := ship.unsaved(settings)):
+        raise Refused(f'ring2: not claimed: {settings["repo"]} has unsaved work ({"; ".join(lost)}); '
+                      f'commit and push it, or discard it yourself')
+    answer = tasks.run(cfg, label, 'claim', [])
+    if managed and answer.startswith('WON '):
+        ship.fresh_branch(settings, f'task/{answer.split()[1]}')
+    return answer
 
 
 def cursor_path(cfg, label):
@@ -68,19 +98,22 @@ def cursor_path(cfg, label):
 def start(cfg, label):
     """Start the role's session, tell it its task, and attach delivery from the bus."""
     entry = role(cfg, label)
-    need(entry, f'role {label}', 'role', 'provider', 'model', 'brief', 'workdir')
+    need(entry, f'role {label}', 'role', 'provider', 'model', 'brief')
     if entry['provider'] != 'codex':
         raise Refused(f'ring2: provider {entry["provider"]!r} is not built')
-    workdir = str(Path(entry['workdir']).resolve())
+    where = workdir(cfg, label)
+    if cfg.get('home') and not entry.get('workdir'):
+        need(cfg, 'app (home)', 'origin')
+        ship.worktree({**cfg, 'repo': str(Path(cfg['home']) / 'repo')}, cfg['origin'], where)
     mine = tasks.mine(cfg, label) if cfg.get('tracker_dir') else []
     prompt = '\n'.join([
-        entry['brief'], '', f'You are {label} ({entry["role"]}). Your working directory is {workdir}.',
+        entry['brief'], '', f'You are {label} ({entry["role"]}). Your working directory is {where}.',
         *([f'Your task: {tasks.brief(issue)}' for issue in mine] or ['You hold no task.']),
         f'Ring2 commands: {sys.executable} {ROOT / "ring2"} <command>'])
     following = bool(cfg.get('ring_url') and cfg.get('channels'))
     if following:  # fixed before the session exists, so nothing posted from now on is skipped
         delivery.init_cursor(lambda after, wait: bus.events(cfg, after, wait), cursor_path(cfg, label))
-    spec = {'model': entry['model'], 'workdir': workdir, 'prompt': prompt,
+    spec = {'model': entry['model'], 'workdir': where, 'prompt': prompt,
             'env': {'RING2_CONFIG': cfg['path'], 'RING2_ROLE': label}}
     if entry.get('headless'):  # the runner is session and delivery loop in one
         previous = sessions.handle(cfg, label) or {}
@@ -179,7 +212,9 @@ def main(argv=None):
     elif command == 'status':
         kind = headless if role(cfg, label).get('headless') else sessions
         print(json.dumps({'running': kind.running(cfg, label), 'state': sessions.handle(cfg, label)}, indent=1))
-    elif command in ('task', 'claim', 'give-back'):
+    elif command == 'claim':
+        print(claim(cfg, label))
+    elif command in ('task', 'give-back'):
         need({'as': label}, 'app', 'as')
         print(tasks.run(cfg, label, 'mine' if command == 'task' else command, args))
     elif command == 'review-pass':

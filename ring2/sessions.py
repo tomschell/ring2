@@ -24,6 +24,7 @@ import argparse
 import json
 import os
 import shlex
+import signal
 import socket
 import subprocess
 import time
@@ -31,7 +32,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-from ring2 import Refused, need
+from ring2 import Refused, need, read_handle, write_handle
 
 
 def tmux(settings, *args, check=True):
@@ -42,25 +43,9 @@ def tmux(settings, *args, check=True):
     return result.stdout.strip()
 
 
-def _state_path(settings, name):
-    need(settings, 'sessions', 'state_dir')
-    return Path(settings['state_dir']) / f'{name}.json'
-
-
 def handle(settings, name):
     """The handle of the last session started under this name, or None."""
-    try:
-        return json.loads(_state_path(settings, name).read_text())
-    except FileNotFoundError:
-        return None
-
-
-def _save(settings, state):
-    path = _state_path(settings, state['name'])
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix('.tmp')
-    tmp.write_text(json.dumps(state, indent=1))
-    os.replace(tmp, path)
+    return read_handle(settings, name)
 
 
 def _find(settings, token):
@@ -126,14 +111,14 @@ def start(settings, name, spec, token=None):
     tmux(settings, 'set-option', '-t', session_id, '@ring2_token', token)
     state = {'name': name, 'token': token, 'tmux_session': session_id, 'endpoint': endpoint, 'codex': codex,
              'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}
-    _save(settings, state)
+    write_handle(settings, state)
     _wait('the Codex app-server', lambda: _ready(f'http://127.0.0.1:{port}/readyz'))
     tmux(settings, 'new-window', '-d', '-t', session_id, '-n', 'tui', '-c', spec['workdir'], shlex.join(
         [codex, '--remote', endpoint, '-C', spec['workdir'], '--no-alt-screen', *quiet,
          '--model', spec['model'], *extra, f'{spec["prompt"]}\n(ring2 session {token})']))
     rollout = _wait('the Codex thread', lambda: _rollout(settings, token, since))
     state.update(thread=rollout.stem[-36:], rollout=str(rollout))
-    _save(settings, state)
+    write_handle(settings, state)
     return state
 
 
@@ -149,8 +134,24 @@ def stop(settings, name):
     session_id = state and _find(settings, state['token'])
     if not session_id:
         return False
+    panes = [int(pid) for pid in tmux(settings, 'list-panes', '-s', '-t', session_id, '-F', '#{pane_pid}').split()]
     tmux(settings, 'kill-session', '-t', session_id)
     _wait('the session to end', lambda: not _find(settings, state['token']))
+    # An app-server with a turn in flight outlives its pane until the turn ends; do not leave it working.
+    deadline = time.monotonic() + 5
+    while any(_alive(pid) for pid in panes) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    for pid in panes:
+        if _alive(pid):
+            os.killpg(pid, signal.SIGKILL)  # each pane is its own process group
+    return True
+
+
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
     return True
 
 

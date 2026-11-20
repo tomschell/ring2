@@ -57,7 +57,7 @@ def alive(pid):
 
 class Lab:
     def __init__(self, roles, codex_extra='', **settings):
-        """roles: {label: (role, brief)}; settings are merged into the config."""
+        """roles: {label: (role, brief[, more role settings])}; settings are merged into the config."""
         self.root = root = Path(tempfile.mkdtemp(prefix='ring2-')).resolve()
         self.home, self.tracker, self.shims = root / 'home', root / 'tracker', root / 'shims'
         for path in (self.home / 'codex', self.tracker, self.shims):
@@ -94,7 +94,8 @@ class Lab:
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.settings = {
             'roles': {label: {'role': role, 'provider': 'codex', 'model': 'gpt-6-astra', 'brief': brief,
-                              'workdir': str(self.work[label])} for label, (role, brief) in roles.items()},
+                              'workdir': str(self.work[label]), **dict(*more)}
+                      for label, (role, brief, *more) in roles.items()},
             'tmux_socket': self.socket, 'ring_url': f'http://127.0.0.1:{ring_port}', 'channels': ['exp'],
             'tracker_dir': str(self.tracker), 'codex': str(self.shims / 'codex'),
             'env': {'CODEX_HOME': str(self.home / 'codex')}, **settings}

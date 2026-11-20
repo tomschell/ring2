@@ -10,7 +10,8 @@ Bus:       post CHANNEL TEXT
 One JSON config file serves every module; each command needs only its own
 module's settings (a task command needs tracker_dir and nothing about Codex).
   roles            {label: {role, provider, model, brief, workdir}}; role is
-                   "implementer" or "reviewer"
+                   "implementer" or "reviewer"; "headless": true runs the role
+                   without tmux or a TUI, "resume": true keeps its thread over a restart
   state_dir, tmux_socket, codex, env, checks_off     sessions
   ring_url, channels, ready_seconds                  bus, delivery, fleet start
   tracker_dir, queue_label                           tasks
@@ -25,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-from ring2 import Refused, bus, delivery, need, sessions, ship, tasks
+from ring2 import Refused, bus, delivery, headless, need, sessions, ship, tasks
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -79,8 +80,17 @@ def start(cfg, label):
     following = bool(cfg.get('ring_url') and cfg.get('channels'))
     if following:  # fixed before the session exists, so nothing posted from now on is skipped
         delivery.init_cursor(lambda after, wait: bus.events(cfg, after, wait), cursor_path(cfg, label))
-    state = sessions.start(cfg, label, {'model': entry['model'], 'workdir': workdir, 'prompt': prompt,
-                                        'env': {'RING2_CONFIG': cfg['path'], 'RING2_ROLE': label}})
+    spec = {'model': entry['model'], 'workdir': workdir, 'prompt': prompt,
+            'env': {'RING2_CONFIG': cfg['path'], 'RING2_ROLE': label}}
+    if entry.get('headless'):  # the runner is session and delivery loop in one
+        previous = sessions.handle(cfg, label) or {}
+        state = headless.start(session_settings(cfg), label, {
+            **spec, 'resume': entry.get('resume') and previous.get('thread'),
+            'source': following and {'ring_url': cfg['ring_url'], 'channels': cfg['channels'], 'label': label,
+                                     'cursor': str(cursor_path(cfg, label))}})
+        print(f'started {label}: headless pid {state["pid"]}, thread {state["thread"]}')
+        return state
+    state = sessions.start(cfg, label, spec)
     if following:
         sessions.add_window(cfg, state, 'follow', [
             'env', f'PYTHONPATH={ROOT}', sys.executable, '-m', 'ring2.delivery', '--ring-url', cfg['ring_url'],
@@ -91,9 +101,13 @@ def start(cfg, label):
     return state
 
 
+def session_settings(cfg):
+    return {key: cfg[key] for key in ('state_dir', 'codex', 'env', 'checks_off') if key in cfg}
+
+
 def stop(cfg, label):
-    role(cfg, label)
-    print(f'stopped {label}' if sessions.stop(cfg, label) else f'{label} is not running')
+    kind = headless if role(cfg, label).get('headless') else sessions
+    print(f'stopped {label}' if kind.stop(cfg, label) else f'{label} is not running')
 
 
 def fleet_start(cfg):
@@ -163,7 +177,8 @@ def main(argv=None):
         stop(cfg, label)
         start(cfg, label)
     elif command == 'status':
-        print(json.dumps({'running': sessions.running(cfg, label), 'state': sessions.handle(cfg, label)}, indent=1))
+        kind = headless if role(cfg, label).get('headless') else sessions
+        print(json.dumps({'running': kind.running(cfg, label), 'state': sessions.handle(cfg, label)}, indent=1))
     elif command in ('task', 'claim', 'give-back'):
         need({'as': label}, 'app', 'as')
         print(tasks.run(cfg, label, 'mine' if command == 'task' else command, args))

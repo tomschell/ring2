@@ -2,6 +2,7 @@
 
   bus       post and watch by @label              (a Ring server)
   sessions  start/stop/restart Codex in tmux      (tmux, codex)
+  headless  the same without tmux or a TUI        (codex)
   delivery  messages into a running session       (codex; any message source)
   tasks     queue, atomic claim, notes, close     (bd)
   ship      test result, PASS, fast-forward       (git)
@@ -10,7 +11,10 @@ Each has its own entry point (`python3 -m ring2.<module> --help`) and takes
 only its own settings. `python3 -m ring2` (app.py) is the assembled tool that
 reads one shared config file. This file holds the little they all share.
 """
+import json
+import os
 import subprocess
+from pathlib import Path
 
 UNCONFIRMED = 'could not confirm whether this happened'
 
@@ -44,3 +48,21 @@ def effect(what, argv, cwd=None):
         detail = (result.stderr or result.stdout).strip().splitlines()[-1:]
         raise Unconfirmed(f'ring2: {what}: {UNCONFIRMED} ({" ".join(detail)}); rerun the command')
     return result.stdout
+
+
+def read_handle(settings, name):
+    """The handle of the last session started under this name, or None."""
+    need(settings, 'sessions', 'state_dir')
+    try:
+        return json.loads((Path(settings['state_dir']) / f'{name}.json').read_text())
+    except FileNotFoundError:
+        return None
+
+
+def write_handle(settings, state):
+    need(settings, 'sessions', 'state_dir')
+    path = Path(settings['state_dir']) / f'{state["name"]}.json'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix('.tmp')
+    tmp.write_text(json.dumps(state, indent=1))
+    os.replace(tmp, path)

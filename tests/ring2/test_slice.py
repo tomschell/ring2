@@ -176,8 +176,11 @@ class SliceTest(unittest.TestCase):
         wait('the follower to hand the message to Codex', lambda: f'accepted {sequence}' in self.follower())
         time.sleep(2)
         self.assertLess(self.cursor(), sequence)
+        old_pids = self.pane_pids()
         self.lab.ring2('restart', label=ROLE)
         third = self.state()['state']
+        wait('the old session processes to exit, turn in flight or not',
+             lambda: not any(alive(pid) for pid in old_pids), seconds=15)
         delivered = wait('delivery to the successor', lambda: lab.requests_with('QUEUED-WHEN-THE-ROLE-RESTARTED'))[0]
         self.assertIn(f'(ring2 session {third["token"]})', '\n'.join(lab.model.user_texts(delivered)))
         self.assertNotIn('QUEUED-WHEN-THE-ROLE-RESTARTED', self.rollout(self.second))

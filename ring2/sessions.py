@@ -1,12 +1,10 @@
 """Sessions: start, stop and restart named Codex sessions in tmux. Needs tmux
 and the codex CLI.
 
-Settings: tmux_socket, state_dir, codex (binary), env, checks_off (default true).
-Sessions run with Codex's own approval prompts and sandbox off
+Settings: tmux_socket, state_dir, codex (binary), env.
+Sessions always run with Codex's own approval prompts and sandbox off
 (--dangerously-bypass-approvals-and-sandbox); the machine or VM is the
 boundary. ring2 does not manage or answer provider permission prompts.
-A session spec is {model, workdir, prompt}. Each session is one tmux session
-holding a Codex app-server and the Codex TUI attached to it.
 
 A tmux name is a location, not an identity. Each start makes a random token,
 kept in the state file and on the tmux session (@ring2_token); stop kills only
@@ -94,7 +92,6 @@ def start(settings, name, spec, token=None):
     if running(settings, name):
         raise Refused(f'ring2: {name} is already running')
     codex = settings.get('codex') or 'codex'
-    extra = ['--dangerously-bypass-approvals-and-sandbox'] if settings.get('checks_off', True) else []
     token = token or uuid.uuid4().hex
     with socket.socket() as probe:
         probe.bind(('127.0.0.1', 0))
@@ -115,7 +112,8 @@ def start(settings, name, spec, token=None):
     _wait('the Codex app-server', lambda: _ready(f'http://127.0.0.1:{port}/readyz'))
     tmux(settings, 'new-window', '-d', '-t', session_id, '-n', 'tui', '-c', spec['workdir'], shlex.join(
         [codex, '--remote', endpoint, '-C', spec['workdir'], '--no-alt-screen', *quiet,
-         '--model', spec['model'], *extra, f'{spec["prompt"]}\n(ring2 session {token})']))
+         '--dangerously-bypass-approvals-and-sandbox',  # always: the machine or VM is the sandbox
+         '--model', spec['model'], f'{spec["prompt"]}\n(ring2 session {token})']))
     rollout = _wait('the Codex thread', lambda: _rollout(settings, token, since))
     state.update(thread=rollout.stem[-36:], rollout=str(rollout))
     write_handle(settings, state)

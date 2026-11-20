@@ -12,7 +12,7 @@ module's settings (a task command needs tracker_dir and nothing about Codex).
   roles            {label: {role, provider, model, brief, workdir}}; role is
                    "implementer" or "reviewer"; "headless": true runs the role
                    without tmux or a TUI, "resume": true keeps its thread over a restart
-  state_dir, tmux_socket, codex, env, checks_off     sessions
+  state_dir, tmux_socket, codex, env                 sessions (provider checks always off)
   ring_url, channels, ready_seconds                  bus, delivery, fleet start
   tracker_dir, queue_label                           tasks
   remote, branch, review_required                    ship (repo is the role's workdir)
@@ -102,7 +102,7 @@ def start(cfg, label):
 
 
 def session_settings(cfg):
-    return {key: cfg[key] for key in ('state_dir', 'codex', 'env', 'checks_off') if key in cfg}
+    return {key: cfg[key] for key in ('state_dir', 'codex', 'env') if key in cfg}
 
 
 def stop(cfg, label):

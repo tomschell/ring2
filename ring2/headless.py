@@ -19,7 +19,7 @@ recorded pid only if its command line still carries that token.
 A person can look at a running session and leave again without disturbing it:
   codex resume <thread> --remote <endpoint>
 
-Settings: state_dir, codex, env, checks_off (default true).
+Settings: state_dir, codex, env. Codex's own approval prompts and sandbox are always off.
 Spec: {model, workdir, prompt, resume (a thread id, optional),
        source: {ring_url, channels, label, cursor} (optional)}.
 
@@ -204,9 +204,9 @@ def run(spec_path, token):
     try:
         _wait('the Codex app-server', lambda: _ready(f'http://127.0.0.1:{port}/readyz'))
         rpc = Rpc(endpoint)
-        params = {'cwd': spec['workdir'], 'model': spec['model']}
-        if settings.get('checks_off', True):
-            params.update(approvalPolicy='never', sandbox='danger-full-access')
+        # Always with Codex's own checks off: the machine or VM is the sandbox.
+        params = {'cwd': spec['workdir'], 'model': spec['model'],
+                  'approvalPolicy': 'never', 'sandbox': 'danger-full-access'}
         if spec.get('resume'):
             thread = rpc.call('thread/resume', {'threadId': spec['resume'], **params})['thread']['id']
         else:

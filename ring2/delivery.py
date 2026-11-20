@@ -69,13 +69,20 @@ class CodexQueue:
             raise Refused(f'ring2 delivery: thread {self.thread} already has a delivery loop; not starting a second')
 
 
+def save_cursor(cursor_path, sequence):
+    """Replace the cursor whole (temp file, then rename): a cut leaves the old value, never a partial one."""
+    cursor_path = Path(cursor_path)
+    cursor_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = cursor_path.with_name(cursor_path.name + '.tmp')
+    tmp.write_text(str(sequence))
+    os.replace(tmp, cursor_path)
+
+
 def init_cursor(source, cursor_path):
     """A first-ever cursor starts at the end of the source, not at its history."""
-    cursor_path = Path(cursor_path)
-    if not cursor_path.exists():
-        cursor_path.parent.mkdir(parents=True, exist_ok=True)
-        cursor_path.write_text(str(max((m['sequence'] for m in source(0, 0)), default=0)))
-    return int(cursor_path.read_text())
+    if not Path(cursor_path).exists():
+        save_cursor(cursor_path, max((m['sequence'] for m in source(0, 0)), default=0))
+    return int(Path(cursor_path).read_text())
 
 
 def marker(sequence):
@@ -111,7 +118,7 @@ def follow(source, wanted, target, cursor_path, log=print):
         reached = waiting[0] - 1 if waiting else sent
         if reached != cursor:
             cursor = reached
-            Path(cursor_path).write_text(str(cursor))
+            save_cursor(cursor_path, cursor)
 
 
 def main(argv=None):

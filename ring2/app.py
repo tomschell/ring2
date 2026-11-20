@@ -153,14 +153,14 @@ def status(cfg):
       active_source  which of the two that was
       delivered, addressed   the cursor, and the newest retained bus sequence naming the role (absent with no bus)
     """
-    from ring2 import owned_processes
+    from ring2 import owned_processes, token_setting
     following = bool(cfg.get('ring_url') and cfg.get('channels'))
     retained = bus.events(cfg, 0, wait=0) if following else []
     rows = []
     for label, entry in cfg.get('roles', {}).items():
         state, cursor = sessions.handle(cfg, label) or {}, cursor_path(cfg, label)
         if entry.get('headless'):
-            row = {'session': bool(state.get('endpoint') and owned_processes([state['endpoint']])),
+            row = {'session': bool(state.get('token') and owned_processes([token_setting(state['token'])])),
                    'loop': headless.running(cfg, label)}
         else:
             row = {'session': sessions.running(cfg, label), 'loop': bool(owned_processes([f'--cursor {cursor}']))}

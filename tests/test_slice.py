@@ -6,6 +6,8 @@ Run: python3 -m unittest tests.test_slice -v
 import json
 import os
 import signal
+import subprocess
+import sys
 import threading
 import time
 import unittest
@@ -220,6 +222,23 @@ class SliceTest(unittest.TestCase):
         self.assertEqual(self.owned(state), [], 'stop left the app-server running')
         lab.ring2('start', label=ROLE)
         self.startup_done(self.state()['state'])
+
+    def test_8c_stop_spares_a_session_that_reuses_the_port(self):
+        lab, handle = self.lab, self.lab.root / 'state' / f'{ROLE}.json'
+        lab.ring2('stop', label=ROLE)
+        config = lab.write_config('other.json', state_dir=str(lab.root / 'state'), sessions={'other': {
+            'model': lab.settings['roles'][ROLE]['model'], 'workdir': str(self.work), 'prompt': 'OTHER-BRIEF'}})
+        sessions = lambda command: subprocess.run(
+            [sys.executable, '-m', 'ring2.sessions', '--config', str(config), command, 'other'],
+            cwd=lab.root, env=lab.env, capture_output=True, text=True)
+        self.addCleanup(lambda: sessions('stop'))
+        other = json.loads(sessions('start').stdout)
+        # The stopped role's handle is kept, and its port is free for the next session to be given.
+        handle.write_text(json.dumps({**json.loads(handle.read_text()), 'endpoint': other['endpoint']}))
+        self.assertIn('is not running', lab.ring2('stop', label=ROLE).stdout)
+        self.assertTrue(self.owned(other), 'stop ended the app-server of the session that reused the port')
+        self.assertIn('stopped', sessions('stop').stdout)
+        self.assertEqual(self.owned(other), [])
 
     # restart edge cases
 

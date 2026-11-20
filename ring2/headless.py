@@ -43,7 +43,7 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
-from ring2 import Refused, need, read_handle, stop_processes, write_handle
+from ring2 import Refused, need, read_handle, stop_processes, token_setting, write_handle
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -202,7 +202,7 @@ def run(spec_path, token):
         port = probe.getsockname()[1]
     endpoint = f'ws://127.0.0.1:{port}'
     server = subprocess.Popen([codex, 'app-server', '--listen', endpoint, '-c', 'check_for_update_on_startup=false',
-                               '-c', f'ring2_session="{token}"'],  # found by stop even if this runner dies right now
+                               '-c', token_setting(token)],  # found by stop even if this runner dies right now
                               cwd=spec['workdir'], env={**os.environ, **settings.get('env', {}), **spec.get('env', {})})
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:
@@ -264,11 +264,11 @@ def start(settings, name, spec):
 
 def stop(settings, name):
     """True if a session, or anything left of one, was stopped. The identity is
-    the token on the runner's command line and the endpoint on the app-server's."""
+    the token on the runner's and the app-server's command lines, never the endpoint."""
     state = read_handle(settings, name)
     if not state or state.get('kind') != 'headless':
         return False
-    return stop_processes([state['token'], state.get('endpoint')])
+    return stop_processes([state['token']])
 
 
 def restart(settings, name, spec):

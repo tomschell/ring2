@@ -178,6 +178,21 @@ class HeadlessTest(unittest.TestCase):
         self.assertFalse(self.state()['running'])
         self.assertIsNone(stranger.poll())
 
+    def test_8a_stop_spares_a_session_that_reuses_the_port(self):
+        lab, handle = self.lab, self.lab.root / 'state' / f'{ROLE}.json'
+        lab.ring2('stop', label=ROLE, check=False)
+        self.addCleanup(lambda: self.solo_run('stop'))
+        self.assertEqual(self.solo_run('start').returncode, 0)
+        other = json.loads(self.solo_run('status').stdout)['handle']
+        # The stopped role's handle is kept, and its port is free for the next session to be given.
+        handle.write_text(json.dumps({**json.loads(handle.read_text()), 'endpoint': other['endpoint']}))
+        self.assertIn('is not running', lab.ring2('stop', label=ROLE).stdout)
+        self.assertTrue(alive(other['pid']) and alive(other['server_pid']), 'stop ended the session that reused the port')
+        row = next(row for row in json.loads(lab.ring2('status', '--json').stdout) if row['label'] == ROLE)
+        self.assertFalse(row['session'], 'status took the other session for this role')
+        self.assertIn('stopped', self.solo_run('stop').stdout)
+        self.assertFalse(alive(other['server_pid']))
+
     # one start per name (the module alone: no tracker or bus call narrows the race)
 
     def solo(self, command):

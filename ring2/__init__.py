@@ -81,9 +81,15 @@ def _processes():
     return table
 
 
+def token_setting(token):
+    """What an app-server's command line carries so that it is found by its session's token:
+    a `-c` config setting Codex ignores. An endpoint is no identity; its port gets reused."""
+    return f'ring2_session="{token}"'
+
+
 def owned_processes(identities):
     """{pid: start time} of the processes whose command line carries one of the
-    identities (a session token, an app-server endpoint) and of their descendants."""
+    identities (a session token, never an endpoint) and of their descendants."""
     table, identities = _processes(), [identity for identity in identities if identity]
     mine, pid = set(), os.getpid()
     while pid in table:  # never this process or what started it
@@ -102,8 +108,8 @@ def owned_processes(identities):
 def stop_processes(identities, grace=5):
     """End a session's processes and see them gone. True if there were any.
 
-    A pid is a location; the identity is the token or endpoint on the command
-    line, and for a descendant its pid together with its start time. Each
+    A pid is a location, and so is an endpoint; the identity is the token on the
+    command line, and for a descendant its pid together with its start time. Each
     signal goes only to a process just seen to still be the same one.
     """
     targets = owned_processes(identities)

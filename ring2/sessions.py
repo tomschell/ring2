@@ -29,7 +29,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-from ring2 import Refused, need, read_handle, stop_processes, write_handle
+from ring2 import Refused, need, read_handle, stop_processes, token_setting, write_handle
 
 
 def tmux(settings, *args, check=True):
@@ -103,7 +103,7 @@ def start(settings, name, spec, token=None):
     session_id = tmux(
         settings, 'new-session', '-d', '-P', '-F', '#{session_id}', '-s', f'ring2-{name}', '-n', 'server',
         '-x', '160', '-y', '50', '-c', spec['workdir'], *env,
-        shlex.join([codex, 'app-server', '--listen', endpoint, *quiet]))
+        shlex.join([codex, 'app-server', '--listen', endpoint, *quiet, '-c', token_setting(token)]))
     tmux(settings, 'set-option', '-t', session_id, '@ring2_token', token)
     state = {'name': name, 'token': token, 'tmux_session': session_id, 'endpoint': endpoint, 'codex': codex,
              'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}
@@ -135,8 +135,9 @@ def stop(settings, name):
         tmux(settings, 'kill-session', '-t', session_id)
         _wait('the session to end', lambda: not _find(settings, state['token']))
     # The app-server can outlive its pane (a turn in flight, a dead pane leader), and so can a tool
-    # it was running. Everything of this session carries its endpoint or descends from what does.
-    left = stop_processes([state.get('endpoint')])
+    # it was running. Everything of this session carries its token or descends from what does. The
+    # endpoint names nothing: another session may hold that port by now.
+    left = stop_processes([state['token']])
     return bool(session_id) or left
 
 

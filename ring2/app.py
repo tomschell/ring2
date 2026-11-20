@@ -114,13 +114,9 @@ def adapter(cfg, label):
     return importlib.import_module(f'ring2.providers.{provider}')
 
 
-def start(cfg, label):
-    """Start the role's session, tell it its task, and attach delivery from the bus."""
+def start_prompt(cfg, label, mine, unsettled=()):
+    """Current role instructions and configured facts for a new conversation."""
     entry = role(cfg, label)
-    provider = adapter(cfg, label)
-    if not hasattr(provider, 'run'):
-        return
-    need(entry, f'role {label}', 'role', 'provider', 'model')
     brief = entry.get('brief')
     if brief is None:
         shipped = ROOT / 'ring2' / 'briefs' / f'{entry["role"]}.md'
@@ -128,17 +124,7 @@ def start(cfg, label):
             raise Refused(f'ring2: role {label} needs a brief; no shipped brief for {entry["role"]!r}')
         brief = shipped.read_text().strip()
     where = workdir(cfg, label)
-    if cfg.get('home') and not entry.get('workdir'):
-        need(cfg, 'app (home)', 'origin')
-        ship.worktree({**cfg, 'repo': str(Path(cfg['home']) / 'repo')}, cfg['origin'], where)
-    mine, unsettled = tasks.mine(cfg, label) if cfg.get('tracker_dir') else [], []
-    if mine and cfg.get('home') and not entry.get('workdir'):
-        try:
-            task_branch(cfg, label, mine[0]['id'])
-        except Refused as exc:  # the role still starts, and is told
-            unsettled = [str(exc)]
-            print(exc)
-    prompt = '\n'.join([
+    return '\n'.join([
         brief, '',
         *([f'Channel: {", ".join(cfg["channels"])}'] if 'channels' in cfg else []),
         *(['Team: ' + ', '.join(f'{name} ({member["role"]})' for name, member in cfg['roles'].items())]
@@ -152,6 +138,31 @@ def start(cfg, label):
         f'You are {label} ({entry["role"]}). Your working directory is {where}.',
         *([f'Your task: {tasks.brief(issue)}' for issue in mine] or ['You hold no task.']), *unsettled,
         f'Ring2 commands: {sys.executable} {ROOT / "ring2"} <command>'])
+
+
+def start(cfg, label):
+    """Start the role's session, tell it its task, and attach delivery from the bus."""
+    entry = role(cfg, label)
+    provider = adapter(cfg, label)
+    if not hasattr(provider, 'run'):
+        return
+    need(entry, f'role {label}', 'role', 'provider', 'model')
+    if entry.get('fresh_conversation'):
+        need(cfg, f'role {label}', 'tracker_dir')
+        if not getattr(provider, 'FRESH_CONVERSATION', False):
+            raise Refused('ring2: fresh_conversation is not built for this provider')
+    where = workdir(cfg, label)
+    if cfg.get('home') and not entry.get('workdir'):
+        need(cfg, 'app (home)', 'origin')
+        ship.worktree({**cfg, 'repo': str(Path(cfg['home']) / 'repo')}, cfg['origin'], where)
+    mine, unsettled = tasks.mine(cfg, label) if cfg.get('tracker_dir') else [], []
+    if mine and cfg.get('home') and not entry.get('workdir'):
+        try:
+            task_branch(cfg, label, mine[0]['id'])
+        except Refused as exc:  # the role still starts, and is told
+            unsettled = [str(exc)]
+            print(exc)
+    prompt = start_prompt(cfg, label, mine, unsettled)
     following = bool(cfg.get('ring_url') and cfg.get('channels'))
     if following:  # fixed before the session exists, so nothing posted from now on is skipped
         delivery.init_cursor(lambda after, wait: bus.events(cfg, after, wait), cursor_path(cfg, label))

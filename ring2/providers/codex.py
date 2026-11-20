@@ -42,6 +42,7 @@ from urllib.parse import urlparse
 from ring2 import owned_processes, read_handle, session, write_handle
 
 KIND, WORD = 'headless', 'codex'
+FRESH_CONVERSATION = True
 
 
 def token_setting(token):
@@ -145,6 +146,7 @@ class CodexTurns:
 
     def __init__(self, rpc, thread):
         self.rpc, self.thread, self.active = rpc, thread, set()
+        self.refresh = None
 
     def own(self):
         """The runner created the thread on its own app-server; it is the only loop."""
@@ -167,6 +169,8 @@ class CodexTurns:
         """Start a turn with `text` once the thread is idle. Returns when the app-server
         reports the turn in progress: the message is in the thread."""
         self._settle()
+        if self.refresh:
+            self.thread, text = self.refresh(self.thread, text)
         turn = self.rpc.call('turn/start', {'threadId': self.thread, 'input': [{'type': 'text', 'text': text}]})
         self.active.add(turn['turn']['id'])
         return 'started'
@@ -211,6 +215,18 @@ def run(spec_path, token):
                                 'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())})
         target = CodexTurns(rpc, thread)
         target.send(f'{spec["prompt"]}\n(ring2 session {token})')
+        if settings.get('roles', {}).get(spec['name'], {}).get('fresh_conversation'):
+            from ring2 import app, tasks
+
+            def refresh(thread, text):
+                if tasks.mine(settings, spec['name']):
+                    return thread, text
+                prompt = app.start_prompt(settings, spec['name'], [])
+                thread = rpc.call('thread/start', params)['thread']['id']
+                write_handle(settings, {**read_handle(settings, spec['name']), 'thread': thread})
+                return thread, f'{prompt}\n(ring2 session {token})\n{text}'
+
+            target.refresh = refresh
         source = spec.get('source')
         if not source:
             while True:

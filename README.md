@@ -78,6 +78,7 @@ Service options use `module.option`; uppercase names are environment variables. 
 | `model` | required for managed roles | Role field (also standalone session input): provider model name. |
 | `brief` | shipped file for the role | Role field: first-prompt instructions; required if no shipped brief exists. |
 | `workdir` | `home/work/<label>`, otherwise required | Role field (also standalone session input): working directory; outside roles need none. |
+| `fresh_conversation` | `false` | Role field: Codex starts a fresh conversation for each message when it holds no task; requires `tracker_dir`. |
 | `resume` | false | Role field: keep the previous conversation on restart; standalone sessions take a thread ID instead. |
 | `env` | empty map | Extra provider environment; standalone session specs can also override individual values. |
 | `codex` | `codex` | Codex adapter executable. |
@@ -175,6 +176,9 @@ python3 -m ring2 --config ring2.json --as rae review-pass <task> <commit>
 python3 -m ring2 --config ring2.json --as ann publish <task> <commit> --close
 python3 -m ring2 --config ring2.json fleet stop
 ```
+
+With `fresh_conversation`, follow-ups also land in a new conversation. Every request to such a role
+must name the task, the full commit and the question. This setting is refused for other managed providers.
 
 Project rules belong in the project's own `AGENTS.md`. Both harnesses read it when run headless
 (seen once each, 2026-11-20). Do not add a `CLAUDE.md` that imports it: with one present,

@@ -76,7 +76,7 @@ Service options use `module.option`; uppercase names are environment variables. 
 | `role` | required for managed roles | Role field: job type; `reviewer` identifies whose PASS counts. |
 | `provider` | required | Role field: adapter filename under `ring2/providers/`, without `.py`. |
 | `model` | required for managed roles | Role field (also standalone session input): provider model name. |
-| `brief` | required for managed roles | Role field: first-prompt instructions. |
+| `brief` | shipped file for the role | Role field: first-prompt instructions; required if no shipped brief exists. |
 | `workdir` | `home/work/<label>`, otherwise required | Role field (also standalone session input): working directory; outside roles need none. |
 | `resume` | false | Role field: keep the previous conversation on restart; standalone sessions take a thread ID instead. |
 | `env` | empty map | Extra provider environment; standalone session specs can also override individual values. |
@@ -175,6 +175,10 @@ python3 -m ring2 --config ring2.json --as rae review-pass <task> <commit>
 python3 -m ring2 --config ring2.json --as ann publish <task> <commit> --close
 python3 -m ring2 --config ring2.json fleet stop
 ```
+
+Project rules belong in the project's own `AGENTS.md`. Both harnesses read it when run headless
+(seen once each, 2026-11-20). Do not add a `CLAUDE.md` that imports it: with one present,
+a Claude role missed a rule on its first turn.
 
 The app's `post` requires a sender (`--as` or `RING2_ROLE`) and stores `<sender>: <text>`.
 A role's own posts remain on the bus but are passed over by its delivery cursor.

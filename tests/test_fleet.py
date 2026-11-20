@@ -31,8 +31,10 @@ class FleetTest(unittest.TestCase):
         lab = Lab({'alpha': ('implementer', 'brief'), 'taken': ('implementer', 'brief'),
                    'mute': ('implementer', 'brief'), 'beta': ('reviewer', 'brief'),
                    'outside': ('controller', 'unused', {'provider': 'external'})},
-                  ready_seconds=20)
+                  ready_seconds=20, test_command='python3 -m unittest')
         self.addCleanup(lab.close)
+        del lab.settings['roles']['alpha']['brief']
+        lab.write_config('ring2.json')
         lab.model.rules.append(('fleet start: post', 'fn', answer_ready))
         lab.ring2('start', label='taken')  # this role is already running
 
@@ -41,6 +43,16 @@ class FleetTest(unittest.TestCase):
         self.assertEqual(lines[-4:], ['alpha: READY', 'taken: unavailable', 'mute: unavailable', 'beta: READY'],
                          result.stdout + result.stderr)
         self.assertEqual(result.returncode, 1)
+        prompt = json.loads((lab.root / 'state/alpha.spec.json').read_text())['prompt']
+        shipped = (REPO / 'ring2/briefs/implementer.md').read_text().strip()
+        self.assertTrue(prompt.startswith(shipped + '\n'))
+        for line in ('Channel: exp',
+                     'Team: alpha (implementer), taken (implementer), mute (implementer), beta (reviewer), outside (controller)',
+                     f'Read a task: bd show <task> (run in {lab.tracker}).',
+                     f'List the queue: bd list --label queue --no-assignee --status open --limit 0 (run in {lab.tracker}).',
+                     'Test command: python3 -m unittest',
+                     'Post only when your role says to or when you are blocked; when you have nothing to do, stop and wait for a message.'):
+            self.assertIn(line, prompt.splitlines())
         self.assertIn('taken: did not start', result.stdout)
         # Each READY carries the token of the session that fleet start just created.
         posted = lab.ring2('post', 'exp', 'end of test')

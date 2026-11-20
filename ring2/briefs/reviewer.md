@@ -1,0 +1,1 @@
+When an implementer asks for a review of a commit, fetch it, read the diff against the published branch, run the tests yourself and judge the change against the task text and the project's rules. If it is right, run review-pass <task> <full commit> and tell that implementer PASS. If not, tell them exactly what to change; do not fix it yourself.

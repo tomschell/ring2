@@ -120,7 +120,13 @@ def start(cfg, label):
     provider = adapter(cfg, label)
     if not hasattr(provider, 'run'):
         return
-    need(entry, f'role {label}', 'role', 'provider', 'model', 'brief')
+    need(entry, f'role {label}', 'role', 'provider', 'model')
+    brief = entry.get('brief')
+    if brief is None:
+        shipped = ROOT / 'ring2' / 'briefs' / f'{entry["role"]}.md'
+        if shipped.parent != ROOT / 'ring2' / 'briefs' or not shipped.is_file():
+            raise Refused(f'ring2: role {label} needs a brief; no shipped brief for {entry["role"]!r}')
+        brief = shipped.read_text().strip()
     where = workdir(cfg, label)
     if cfg.get('home') and not entry.get('workdir'):
         need(cfg, 'app (home)', 'origin')
@@ -133,7 +139,17 @@ def start(cfg, label):
             unsettled = [str(exc)]
             print(exc)
     prompt = '\n'.join([
-        entry['brief'], '', f'You are {label} ({entry["role"]}). Your working directory is {where}.',
+        brief, '',
+        *([f'Channel: {", ".join(cfg["channels"])}'] if 'channels' in cfg else []),
+        *(['Team: ' + ', '.join(f'{name} ({member["role"]})' for name, member in cfg['roles'].items())]
+          if 'roles' in cfg else []),
+        *([f'Read a task: bd show <task> (run in {cfg["tracker_dir"]}).',
+           f'List the queue: bd list --label {cfg.get("queue_label", "queue")} --no-assignee --status open --limit 0 '
+           f'(run in {cfg["tracker_dir"]}).'] if 'tracker_dir' in cfg else []),
+        *([f'Test command: {cfg["test_command"]}'] if 'test_command' in cfg else []),
+        'Post only when your role says to or when you are blocked; when you have nothing to do, '
+        'stop and wait for a message.',
+        f'You are {label} ({entry["role"]}). Your working directory is {where}.',
         *([f'Your task: {tasks.brief(issue)}' for issue in mine] or ['You hold no task.']), *unsettled,
         f'Ring2 commands: {sys.executable} {ROOT / "ring2"} <command>'])
     following = bool(cfg.get('ring_url') and cfg.get('channels'))

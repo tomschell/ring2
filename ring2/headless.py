@@ -13,8 +13,9 @@ Starting a turn while another is active does not wait in Codex: it cuts into
 the active turn. The runner therefore never calls turn/start before the turns
 it has seen start have completed.
 
-Identity: the runner's command line carries a random token; stop signals the
-recorded pid only if its command line still carries that token.
+Identity: a random token, saved in the handle before anything is started. The
+runner's command line carries it, and so does the app-server's (as a config
+setting Codex ignores), so stop finds either even when the other died first.
 
 A person can look at a running session and leave again without disturbing it:
   codex resume <thread> --remote <endpoint>
@@ -200,7 +201,8 @@ def run(spec_path, token):
         probe.bind(('127.0.0.1', 0))
         port = probe.getsockname()[1]
     endpoint = f'ws://127.0.0.1:{port}'
-    server = subprocess.Popen([codex, 'app-server', '--listen', endpoint, '-c', 'check_for_update_on_startup=false'],
+    server = subprocess.Popen([codex, 'app-server', '--listen', endpoint, '-c', 'check_for_update_on_startup=false',
+                               '-c', f'ring2_session="{token}"'],  # found by stop even if this runner dies right now
                               cwd=spec['workdir'], env={**os.environ, **settings.get('env', {}), **spec.get('env', {})})
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:

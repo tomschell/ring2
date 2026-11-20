@@ -225,6 +225,26 @@ class HeadlessTest(unittest.TestCase):
         self.solo_run('stop')
         self.assertEqual(self.runners(), [])
 
+    def test_9c_a_runner_killed_before_it_saved_its_server_leaves_one_stop_can_end(self):
+        lab, handle = self.lab, self.lab.root / 'state' / 'solo.json'
+        self.addCleanup(lambda: self.solo_run('stop'))
+        start = subprocess.Popen(self.solo('start'), cwd=lab.root, env=lab.env,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        runner = int(wait('the runner to exist', self.runners)[0])
+        server = int(wait('the runner to launch its app-server', lambda: lab.run_any('pgrep', '-P', str(runner)),
+                          interval=0.01).split()[0])
+        os.kill(runner, signal.SIGKILL)   # after the launch, before the handle names the server
+        self.addCleanup(lambda: [os.kill(int(pid), signal.SIGKILL)
+                                 for pid in [*lab.run_any('pgrep', '-P', str(server)).split(), server] if alive(int(pid))])
+        start.wait()
+        state = json.loads(handle.read_text())
+        self.assertEqual((state.get('pid'), state.get('endpoint'), state.get('server_pid')), (None, None, None),
+                         'the runner was killed too late for this test')
+        self.assertTrue(alive(server), 'expected the app-server to outlive its runner')
+        self.assertIn('stopped', self.solo_run('stop').stdout)
+        self.assertFalse(alive(server), 'stop left the app-server of the killed runner running')
+        self.assertEqual(lab.run_any('pgrep', '-f', state['token']), '')
+
 
 if __name__ == '__main__':
     unittest.main()

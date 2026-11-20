@@ -38,13 +38,13 @@ exec "{real}" "$@"
 '''
 
 
-def wait(what, check, seconds=45):
+def wait(what, check, seconds=45, interval=0.1):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         value = check()
         if value:
             return value
-        time.sleep(0.1)
+        time.sleep(interval)
     raise AssertionError(f'timed out waiting for {what}')
 
 

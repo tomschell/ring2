@@ -90,17 +90,18 @@ def test(settings, commit, command, evidence, author):
         finally:
             shutil.rmtree(checkout, ignore_errors=True)
             git(settings, 'worktree', 'prune')
-    tail = output.read_text(errors='replace').splitlines()[-200:]
-    output.write_text('\n'.join(tail) + '\n' if tail else '')
-    if code:
-        print('\n'.join(tail + [f'(the last {len(tail)} lines of output; kept in {output} until the next test)']))
-    result = 'PASS' if code == 0 else f'FAIL (exit {code})'
-    # Each execution is its own line, so the same outcome after a different one is recorded again.
-    line = f'TEST {result} {commit} `{command}` (run {datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%S.%fZ})'
-    try:
-        evidence.add(author, line)
-    except Unconfirmed:  # the reply may be what was lost: adding this same line again never records it twice
-        evidence.add(author, line)
+        # Still under the lock: the output file is this run's, and results are recorded in the order the runs ended.
+        tail = output.read_text(errors='replace').splitlines()[-200:]
+        output.write_text('\n'.join(tail) + '\n' if tail else '')
+        if code:
+            print('\n'.join(tail + [f'(the last {len(tail)} lines of output; kept in {output} until the next test)']))
+        result = 'PASS' if code == 0 else f'FAIL (exit {code})'
+        # Each execution is its own line, so the same outcome after a different one is recorded again.
+        line = f'TEST {result} {commit} `{command}` (run {datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%S.%fZ})'
+        try:
+            evidence.add(author, line)
+        except Unconfirmed:  # the reply may be what was lost: adding this same line again never records it twice
+            evidence.add(author, line)
     return code == 0
 
 

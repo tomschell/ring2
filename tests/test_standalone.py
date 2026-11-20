@@ -13,12 +13,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from ring2 import Unconfirmed, ship
+from ring2 import Refused, Unconfirmed, ship
 from tests.lab import CODEX, HAVE_TOOLS, REPO, Lab, wait
 
 
@@ -132,6 +133,32 @@ class ShipAloneTest(Plain):
         notes = LosesOneReply(settings, commit)
         self.assertTrue(ship.test(settings, commit, 'true', notes, 'ann'))
         self.assertEqual((notes.lost, len(notes.read())), (1, 1))
+
+    def test_a_result_is_recorded_before_the_next_test_may_start(self):
+        _, repo, (commit, _) = self.clone()
+        self.in_process()
+        settings, recording, go_on = {'repo': str(repo)}, threading.Event(), threading.Event()
+
+        class Paused(ship.GitNotes):
+            def add(self, author, text):
+                recording.set()
+                go_on.wait(60)
+                return super().add(author, text)
+        notes, log = ship.GitNotes(settings, commit), repo / '.git' / 'ring2-test' / 'ann.log'
+        older = threading.Thread(target=ship.test, args=(settings, commit, 'echo OLDER', Paused(settings, commit), 'ann'))
+        older.start()
+        self.addCleanup(lambda: (go_on.set(), older.join()))
+        self.assertTrue(recording.wait(60))
+        # The older run has ended and is about to record: a newer one cannot overtake it or replace its output.
+        with self.assertRaises(Refused) as refused:
+            ship.test(settings, commit, 'echo NEWER; false', notes, 'ann')
+        self.assertIn('already has a test running', str(refused.exception))
+        self.assertEqual((notes.read(), log.read_text()), ([], 'OLDER\n'))
+        go_on.set()
+        older.join()
+        self.assertFalse(ship.test(settings, commit, 'echo NEWER; false', notes, 'ann'))
+        self.assertEqual([text.split()[1] for _, text in notes.read()], ['PASS', 'FAIL'])
+        self.assertFalse(ship.tested(commit, notes))
 
     def test_publish_with_no_tracker(self):
         origin, repo, commits = self.clone()

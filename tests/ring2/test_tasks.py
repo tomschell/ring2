@@ -3,7 +3,9 @@ bd tracker and a local bare origin. No Codex session is involved.
 
 Run: python3 -m unittest tests.ring2.test_tasks -v
 """
+import shutil
 import subprocess
+import sys
 import time
 import unittest
 
@@ -14,11 +16,14 @@ RACERS = [f'racer-{n}' for n in range(6)]
 
 @unittest.skipUnless(HAVE_TOOLS, 'needs codex, tmux and bd')
 class TasksTest(unittest.TestCase):
+    """Every test here runs once per bd mode: this class embedded, the subclass below against a Dolt server."""
+    BD_MODE = 'embedded'
+
     @classmethod
     def setUpClass(cls):
         roles = {'impl': ('implementer', 'b'), 'rev': ('reviewer', 'b'),
                  **{label: ('implementer', 'b') for label in RACERS}}
-        cls.lab = Lab(roles)
+        cls.lab = Lab(roles, bd_mode=cls.BD_MODE)
         cls.addClassCleanup(cls.lab.close)
         cls.no_review = cls.lab.write_config('no-review.json', review_required=False)
 
@@ -38,6 +43,45 @@ class TasksTest(unittest.TestCase):
     def holder(self, task):
         issue = self.lab.issue(task)
         return issue['status'], issue.get('assignee')
+
+    def timed(self, repeat, action):
+        started = time.monotonic()
+        for _ in range(repeat):
+            action()
+        return (time.monotonic() - started) / repeat
+
+    def test_0_timing(self):
+        task = self.queued('timed')
+        show = self.timed(5, lambda: self.lab.issue(task))
+        claim = self.timed(1, lambda: self.lab.ring2('claim', label='impl'))
+        held = self.timed(3, lambda: self.lab.ring2('claim', label='impl'))
+        back = self.timed(1, lambda: self.lab.ring2('give-back', task, label='impl'))
+        print(f'\n[bd {self.BD_MODE}] bd show {show:.2f}s; ring2 claim (wins) {claim:.2f}s; '
+              f'ring2 claim (already holds) {held:.2f}s; ring2 give-back {back:.2f}s', file=sys.stderr)
+        self.drain_queue()
+
+    def test_1e_twenty_raw_races_and_twenty_claim_races(self):
+        """Exactly one winner, every time: 20 races on bd's own claim and 20 on `ring2 claim`."""
+        started = time.monotonic()
+        for round_ in range(20):
+            task = self.queued(f'raw race {round_}')
+            results = self.race([['bd', 'update', task, '--claim', '--actor', label, '--json'] for label in RACERS])
+            winners = [label for label, (_, _, code) in zip(RACERS, results) if code == 0]
+            self.assertEqual(len(winners), 1, (round_, results))
+            self.assertEqual(self.holder(task), ('in_progress', winners[0]))
+            self.assertTrue(all('already claimed by' in out + err for out, err, code in results if code), results)
+            self.lab.bd('close', task, '--reason', 'raced', '--force')
+        raw = (time.monotonic() - started) / 20
+        started = time.monotonic()
+        for round_ in range(20):
+            task = self.queued(f'claim race {round_}')
+            results = self.race([self.lab.ring2_argv('claim', label=label) for label in RACERS])
+            outs = [out.strip() for out, _, _ in results]
+            self.assertEqual([code for _, _, code in results], [0] * 6, results)
+            self.assertEqual((sum(task in out for out in outs), outs.count('EMPTY')), (1, 5), (round_, results))
+            self.lab.bd('close', task, '--reason', 'raced', '--force')
+        print(f'\n[bd {self.BD_MODE}] 20 six-process races each: raw bd claim {raw:.2f}s per race, '
+              f'ring2 claim {(time.monotonic() - started) / 20:.2f}s per race', file=sys.stderr)
 
     # 1. claim
 
@@ -101,6 +145,26 @@ class TasksTest(unittest.TestCase):
         self.assertEqual(self.lab.ring2('give-back', task, label='impl').stdout.strip(), 'already given back')
         self.assertIn(task, self.lab.ring2('claim', label='racer-0').stdout)  # queued again for anyone
         self.drain_queue()
+
+    def test_1f_tasks_module_alone_comment_label_close(self):
+        """The Tasks entry point with only --tracker: no config file, bus or session."""
+        lab, task = self.lab, self.queued('through the module alone')
+        tasks = lambda *args: subprocess.run(
+            [sys.executable, '-m', 'ring2.tasks', '--tracker', str(lab.tracker), *args],
+            cwd=lab.root, env=lab.env, capture_output=True, text=True)
+        self.assertIn(task, tasks('queue').stdout)
+        self.assertEqual(tasks('--as', 'impl', 'claim').stdout.split()[:2], ['WON', task])
+        self.assertEqual(tasks('--as', 'impl', 'comment', task, 'a note').stdout.strip(), 'recorded')
+        self.assertEqual(tasks('--as', 'impl', 'comment', task, 'a note').stdout.strip(), 'already recorded')
+        self.assertEqual(lab.comments(task), [('impl', 'a note')])
+        tasks('label', task, 'owes:docs')
+        self.assertIn('owes:docs', lab.issue(task)['labels'])
+        self.assertIn('still carries owes:docs', tasks('--as', 'impl', 'close', task, '--reason', 'done').stderr)
+        self.assertIn('is held by impl', tasks('--as', 'racer-0', 'close', task, '--reason', 'done', '--confirm').stderr)
+        tasks('unlabel', task, 'owes:docs')
+        self.assertNotIn('owes:docs', lab.issue(task).get('labels') or [])
+        self.assertEqual(tasks('--as', 'impl', 'close', task, '--reason', 'done').stdout.strip(), 'closed')
+        self.assertEqual(lab.issue(task)['status'], 'closed')
 
     # 2-4. review, test result, publish, close
 
@@ -225,6 +289,11 @@ class TasksTest(unittest.TestCase):
         lab.lose_reply('bd', 'unclaim')
         self.assert_unconfirmed(lab.ring2('give-back', other, label='impl', check=False))
         self.assertEqual(lab.ring2('give-back', other, label='impl').stdout.strip(), 'already given back')
+
+
+@unittest.skipUnless(HAVE_TOOLS and shutil.which('dolt'), 'needs codex, tmux, bd and dolt')
+class TasksServerTest(TasksTest):
+    BD_MODE = 'server'
 
 
 if __name__ == '__main__':

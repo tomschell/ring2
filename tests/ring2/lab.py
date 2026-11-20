@@ -56,8 +56,10 @@ def alive(pid):
 
 
 class Lab:
-    def __init__(self, roles, codex_extra='', **settings):
-        """roles: {label: (role, brief[, more role settings])}; settings are merged into the config."""
+    def __init__(self, roles, codex_extra='', bd_mode='embedded', **settings):
+        """roles: {label: (role, brief[, more role settings])}; settings are merged into the config.
+        bd_mode 'server' runs the tracker against a throwaway local Dolt sql-server (as production
+        does) with its data under the worktree's .ring2-tmp; 'embedded' needs no server."""
         self.root = root = Path(tempfile.mkdtemp(prefix='ring2-')).resolve()
         self.home, self.tracker, self.shims = root / 'home', root / 'tracker', root / 'shims'
         for path in (self.home / 'codex', self.tracker, self.shims):
@@ -72,7 +74,7 @@ class Lab:
         for name in ('OPENAI_API_KEY', 'RING2_CONFIG', 'RING2_ROLE'):
             self.env.pop(name, None)
         self.socket = f'ring2-test-{uuid.uuid4().hex[:8]}'
-        self.model = self.ringd = None
+        self.model = self.ringd = self.dolt = self.dolt_data = None
 
         # A bare origin, with one clone per role as its working directory.
         self.origin = root / 'origin.git'
@@ -84,7 +86,14 @@ class Lab:
             if first is None:
                 first = self.commit(label, 'tracked.txt', 'committed\n')
                 self.run('git', 'push', '-q', 'origin', 'HEAD:main', cwd=workdir)
-        self.run('bd', 'init', '--prefix', 'exp', '--non-interactive', cwd=self.tracker)
+        if bd_mode == 'server':
+            self.start_dolt()
+            self.run('git', 'init', '-q', str(self.tracker))
+            self.run('bd', 'init', '--server', '--external', '--server-host', '127.0.0.1', '--server-port',
+                     str(self.dolt_port), '--prefix', 'exp', '--non-interactive', '--skip-hooks', '--skip-agents',
+                     cwd=self.tracker)
+        else:
+            self.run('bd', 'init', '--prefix', 'exp', '--non-interactive', cwd=self.tracker)
 
         self.model = MockModel()
         (self.home / 'codex' / 'config.toml').write_text(self.model.codex_config(self.work.values(), codex_extra))
@@ -101,6 +110,23 @@ class Lab:
             'env': {'CODEX_HOME': str(self.home / 'codex')}, **settings}
         self.config = self.write_config('ring2.json')
         wait('ringd', lambda: self.ring2('post', 'exp', 'bus is up', check=False).returncode == 0)
+
+    def start_dolt(self):
+        base = REPO / '.ring2-tmp'
+        base.mkdir(exist_ok=True)
+        self.dolt_data = Path(tempfile.mkdtemp(prefix='dolt-', dir=base))
+        self.env['DOLT_DISABLE_EVENT_FLUSH'] = '1'  # with metrics.disabled: Dolt sends no usage events
+        for key, value in (('user.name', 'ring2'), ('user.email', 'ring2@example.invalid'), ('metrics.disabled', 'true')):
+            self.run('dolt', 'config', '--global', '--add', key, value)  # global means the lab's HOME
+        self.dolt_port = self.free_port()
+        self.dolt = subprocess.Popen(['dolt', 'sql-server', '--host', '127.0.0.1', '--port', str(self.dolt_port),
+                                      '--data-dir', str(self.dolt_data)], cwd=self.dolt_data, env=self.env,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        def listening():
+            with socket.socket() as probe:
+                return probe.connect_ex(('127.0.0.1', self.dolt_port)) == 0
+        wait('the Dolt sql-server', listening)
 
     @staticmethod
     def free_port():
@@ -125,6 +151,13 @@ class Lab:
             socket_file.unlink()
         if self.model:
             self.model.close()
+        if self.dolt:
+            self.dolt.terminate()
+            self.dolt.wait()
+        if self.dolt_data:
+            shutil.rmtree(self.dolt_data, ignore_errors=True)
+            if not any(self.dolt_data.parent.iterdir()):
+                self.dolt_data.parent.rmdir()
         if os.environ.get('RING2_KEEP'):
             print(f'kept {self.root}', file=sys.stderr)
         else:

@@ -143,6 +143,53 @@ def stop(cfg, label):
     print(f'stopped {label}' if kind.stop(cfg, label) else f'{label} is not running')
 
 
+def status(cfg):
+    """One plain dict per role, read through the modules' public functions; no store of its own.
+
+      session    the Codex session is running (tmux form: its tmux session; headless: its app-server)
+      loop       what delivers bus messages is running (tmux form: the delivery loop; headless: the runner)
+      tasks      ids the tracker says the role holds (absent with no tracker)
+      active     when the session's rollout file, else the delivery cursor, last changed (unix time), and
+      active_source  which of the two that was
+      delivered, addressed   the cursor, and the newest retained bus sequence naming the role (absent with no bus)
+    """
+    from ring2 import owned_processes
+    following = bool(cfg.get('ring_url') and cfg.get('channels'))
+    retained = bus.events(cfg, 0, wait=0) if following else []
+    rows = []
+    for label, entry in cfg.get('roles', {}).items():
+        state, cursor = sessions.handle(cfg, label) or {}, cursor_path(cfg, label)
+        if entry.get('headless'):
+            row = {'session': bool(state.get('endpoint') and owned_processes([state['endpoint']])),
+                   'loop': headless.running(cfg, label)}
+        else:
+            row = {'session': sessions.running(cfg, label), 'loop': bool(owned_processes([f'--cursor {cursor}']))}
+        row = {'label': label, 'role': entry.get('role'), **row}
+        if cfg.get('tracker_dir'):
+            row['tasks'] = [issue['id'] for issue in tasks.mine(cfg, label)]
+        for source, path in (('rollout', state.get('rollout')), ('cursor', cursor)):
+            if path and Path(path).exists():
+                row.update(active=int(Path(path).stat().st_mtime), active_source=source)
+                break
+        if following:
+            row['delivered'] = int(cursor.read_text()) if cursor.exists() else None
+            row['addressed'] = max((message['sequence'] for message in retained
+                                    if bus.addressed(label, message['message'])), default=0)
+        rows.append(row)
+    return rows
+
+
+def status_text(rows):
+    lines = []
+    for row in rows:
+        age = f'{int(time.time()) - row["active"]}s ago ({row["active_source"]})' if 'active' in row else 'unknown'
+        waiting = (f'{row["delivered"]}/{row["addressed"]}' if row.get('delivered') is not None else 'none')
+        lines.append(f'{row["label"]}: session {"alive" if row["session"] else "dead"}, '
+                     f'loop {"alive" if row["loop"] else "dead"}, tasks {" ".join(row.get("tasks", [])) or "-"}, '
+                     f'active {age}, delivered/addressed {waiting}')
+    return '\n'.join(lines)
+
+
 def fleet_start(cfg):
     """Start every role, then ask each to answer READY on the bus with its session token.
 
@@ -191,6 +238,7 @@ def main(argv=None):
     parser.add_argument('--reason')
     parser.add_argument('--confirm', action='store_true')
     parser.add_argument('--close', action='store_true')
+    parser.add_argument('--json', action='store_true')
     parser.add_argument('command')
     parser.add_argument('args', nargs='*')
     opts = parser.parse_args(argv)
@@ -209,6 +257,9 @@ def main(argv=None):
     elif command == 'restart':
         stop(cfg, label)
         start(cfg, label)
+    elif command == 'status' and (not label or opts.json):
+        rows = status(cfg)
+        print(json.dumps(rows, indent=1) if opts.json else status_text(rows))
     elif command == 'status':
         kind = headless if role(cfg, label).get('headless') else sessions
         print(json.dumps({'running': kind.running(cfg, label), 'state': sessions.handle(cfg, label)}, indent=1))

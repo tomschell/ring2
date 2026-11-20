@@ -25,9 +25,12 @@ a provider's sandbox or permission prompts; the machine boundary is the sandbox.
 | `ring2.delivery` | gets bus messages into a running Codex session without interrupting its turn | codex | the bus server; a Codex app-server with a thread (yours or one `ring2.sessions` started) |
 | `ring2.tasks` | queue, atomic claim, give-back, comments, labels, close | bd | embedded bd: nothing. Server-mode bd: the Dolt sql-server the tracker points at |
 | `ring2.ship` | test result for a commit, reviewer PASS, fast-forward of a chosen branch | git | nothing; the remote is any git URL or path |
-| `ring2` (`app.py`) | the modules assembled, from one JSON config file | all of the above | the bus server |
+| `ring2` (`app.py`) | the modules assembled, from one JSON config file; `status` | all of the above | the bus server |
+| `ring2.watch` (optional) | restarts a role whose delivery died while a message waits for it | the app | the bus server |
+| `ring2.console` (optional) | one read-only page on 127.0.0.1: roles and the latest bus messages | the app | nothing |
 
 Only the Python standard library is imported. There is nothing to install: run from a clone.
+`watch.py` and `console.py` can be deleted; nothing else imports them.
 
 Both bd modes were tested. In server mode a bd call takes about 0.15 s and a claim about 0.5 s;
 embedded, about 0.4 s and 1.3 s. The claim was atomic in both (one winner in every one of 20
@@ -71,8 +74,10 @@ python3 -m ring2.ship --repo /path/to/clone --as rae --reviewer rae pass <commit
 python3 -m ring2.ship --repo /path/to/clone --reviewer rae publish <commit>    # fast-forwards origin main
 ```
 
-The test runs in a clean checkout of exactly that commit. Evidence is kept as git notes (ref
-`ring2`) on the commit. `--remote` and `--branch` choose the target; `--no-review` skips the PASS.
+The test runs in a clean checkout of exactly that commit: one checkout and one output file per
+author inside the repository's git directory, replaced by every run, keeping the last 200 lines of
+output. Evidence is kept as git notes (ref `ring2`) on the commit. A PASS is a reviewer's line that
+starts `PASS <full commit>`; a test result is a line that starts `TEST PASS <full commit>`. `--remote` and `--branch` choose the target; `--no-review` skips the PASS.
 An error starting "not published" means the branch was not touched; "could not confirm whether
 this happened" means the push was sent and its outcome is unknown. Rerunning is safe either way.
 
@@ -121,6 +126,29 @@ python3 -m ring2 --config ring2.json --as ann publish <task> <commit> --close
 python3 -m ring2 --config ring2.json fleet stop
 ```
 
+While it runs:
+
+```
+python3 -m ring2 --config ring2.json status            # per role: session, delivery, task, last activity, delivered/addressed
+python3 -m ring2.watch --config ring2.json &
+python3 -m ring2.console --config ring2.json --port 8780 &
+```
+
+Instead of a `workdir` per role you can give the fleet one fixed home:
+
+```
+{"home": "/path/to/fleet", "origin": "/path/or/url/of/the/repository", ...}
+```
+
+`home/repo` is one shared clone, `home/work/<label>` a linked git worktree per role, `home/state` the
+state files. They are made if missing and reused by every start; nothing is created per start. In a
+home, a won `claim` puts the role's directory on a fresh branch `task/<id>` from the published
+branch. It refuses first, changing nothing, while the directory has uncommitted changes or commits
+that are on no remote ref. That is the one lost-work check; ring2 has no other.
+
+`status` shows a dead role the same whether it died or was stopped, so `watch` restarts either once
+a message is waiting for it. Stop watch before stopping a role you want to stay down.
+
 Here the evidence is kept as comments on the task. Add `"headless": true` to a role to run it
 without tmux. Inside a session, `RING2_CONFIG` and `RING2_ROLE` are set, so the session can run the
 same commands without flags.
@@ -134,19 +162,22 @@ python3 -m unittest discover -s tests -t .
 The suite needs `codex`, `tmux`, `bd` and `git`; the server-mode tracker tests also need `dolt`.
 It runs the real Codex binary against a local mock model server with a throwaway Codex home, a
 private tmux socket, throwaway trackers and a local bare git origin. It makes no provider request
-and takes about ten minutes.
+and takes about fifteen minutes.
 
 ## Known gaps
 
 - Never run against a real provider: sign-in, a Codex home shared by several roles, long real turns.
 - Only Codex. A Claude session needs its own session and delivery classes.
-- Nothing restarts a dead delivery loop or a dead headless runner; `restart` of the role does.
+- `watch` handles one case (delivery dead, message waiting) and was run against a killed headless runner only. A dead tmux delivery loop takes the same path but was not run. Nothing restarts watch itself.
+- `status` cannot tell a stopped role from a dead one, cannot see a session that is alive but stuck, and its "last activity" is the change time of the session's rollout file (tmux form) or of the delivery cursor (headless).
+- Trial cases not covered by a test: a person typing in an attached TUI at the instant a headless bus message starts a turn; a delivery loop killed between `codex queue` accepting a message and the cursor passing it (the design resends it; not run); stop during a long tool run in headless form (run for the tmux form only).
+- In a fleet home, a role that gives a task back with unpushed commits cannot claim again until it pushes or discards them.
+- Codex's own session files under its home grow with every thread; ring2 does not prune them.
 - The bus keeps 64 messages per channel. A session that falls further behind misses the rest.
 - A message goes on the `codex queue` command line with no size check beyond the bus's 4096 bytes.
 - bd claims carry a five-minute lease. ring2 never renews or reclaims it; behaviour after expiry is untested.
 - A later objection by a reviewer does not revoke an earlier PASS for the same commit.
 - A role's own bus posts are not filtered out of its delivery.
-- In headless mode, a person typing into an attached TUI at the instant a bus message starts a turn can be cut into.
-- Tested on macOS with codex-cli 0.163.0, bd 1.2.1 and Dolt 2.3.0.
+- Tested on macOS with codex-cli 0.163.0, bd 1.2.1 and Dolt 2.3.0; an earlier state also on Linux with bd 1.3.2.
 
 More detail is in `docs/`.

@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 import uuid
 from pathlib import Path
 
@@ -211,6 +212,11 @@ class Lab:
 
     def post(self, text):
         return json.loads(self.ring2('post', 'exp', text).stdout)['sequence']
+
+    def messages(self):
+        """Every message the bus still holds on the lab's channel."""
+        with urllib.request.urlopen(f'{self.settings["ring_url"]}/messages?channel=exp', timeout=30) as response:
+            return json.load(response)['messages']
 
     def tmux(self, *args):
         return subprocess.run(['tmux', '-L', self.socket, *args], capture_output=True, text=True).stdout.strip()

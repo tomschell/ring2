@@ -8,6 +8,7 @@ import os
 import shlex
 import signal
 import subprocess
+import sys
 import threading
 import time
 import unittest
@@ -176,6 +177,53 @@ class HeadlessTest(unittest.TestCase):
         self.assertIn('is not running', lab.ring2('stop', label=ROLE).stdout)
         self.assertFalse(self.state()['running'])
         self.assertIsNone(stranger.poll())
+
+    # one start per name (the module alone: no tracker or bus call narrows the race)
+
+    def solo(self, command):
+        lab = self.lab
+        config = lab.write_config('solo.json', state_dir=str(lab.root / 'state'), sessions={'solo': {
+            'model': lab.settings['roles'][ROLE]['model'], 'workdir': str(self.work), 'prompt': 'SOLO-BRIEF'}})
+        return [sys.executable, '-m', 'ring2.headless', '--config', str(config), command, 'solo']
+
+    def solo_run(self, command):
+        return subprocess.run(self.solo(command), cwd=self.lab.root, env=self.lab.env, capture_output=True, text=True)
+
+    def runners(self):
+        spec = self.lab.root / 'state' / 'solo.spec.json'
+        return self.lab.run_any('pgrep', '-f', f'ring2.headless run {spec}').split()
+
+    def test_9a_two_starts_at_once_leave_one_session(self):
+        lab = self.lab
+        lab.ring2('stop', label=ROLE, check=False)
+        self.addCleanup(lambda: self.solo_run('stop'))
+        starts = [subprocess.Popen(self.solo('start'), cwd=lab.root, env=lab.env,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(2)]
+        outputs = [start.communicate(timeout=120) for start in starts]
+        self.assertEqual(len(self.runners()), 1, 'two runners for one name')
+        self.assertEqual(sorted(start.returncode != 0 for start in starts), [False, True], outputs)
+        refused = outputs[[start.returncode != 0 for start in starts].index(True)]
+        self.assertRegex(refused[1], 'is being started|is already running')
+        status = json.loads(self.solo_run('status').stdout)
+        self.assertTrue(status['running'])
+        self.assertEqual(self.runners(), [str(status['handle']['pid'])])
+        self.assertIn('stopped', self.solo_run('stop').stdout)
+        self.assertEqual(self.runners(), [])
+
+    def test_9b_a_start_cut_short_can_still_be_stopped(self):
+        lab = self.lab
+        self.addCleanup(lambda: self.solo_run('stop'))
+        start = subprocess.Popen(self.solo('start'), cwd=lab.root, env=lab.env,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        wait('the runner to exist', self.runners)
+        start.kill()   # cut before the session is up
+        start.wait()
+        self.solo_run('stop')
+        self.assertEqual(self.runners(), [], 'the runner of the interrupted start was left behind')
+        self.assertEqual(self.solo_run('start').returncode, 0)   # and the name is usable again
+        self.assertEqual(len(self.runners()), 1)
+        self.solo_run('stop')
+        self.assertEqual(self.runners(), [])
 
 
 if __name__ == '__main__':

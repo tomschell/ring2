@@ -28,6 +28,7 @@ Spec: {model, workdir, prompt, resume (a thread id, optional),
 """
 import argparse
 import base64
+import fcntl
 import json
 import os
 import signal
@@ -41,7 +42,7 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
-from ring2 import Refused, need, read_handle, write_handle
+from ring2 import Refused, need, read_handle, stop_processes, write_handle
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -186,7 +187,8 @@ def _command(pid):
 
 def running(settings, name):
     state = read_handle(settings, name)
-    return bool(state and state.get('kind') == 'headless' and state['token'] in _command(state['pid']))
+    return bool(state and state.get('kind') == 'headless' and state.get('pid')
+                and state['token'] in _command(state['pid']))
 
 
 def run(spec_path, token):
@@ -229,47 +231,42 @@ def run(spec_path, token):
 
 def start(settings, name, spec):
     need(spec, f'headless ({name})', 'model', 'workdir', 'prompt')
-    if running(settings, name):
-        raise Refused(f'ring2: {name} is already running')
-    token = uuid.uuid4().hex
     state_dir = Path(settings['state_dir'])
     state_dir.mkdir(parents=True, exist_ok=True)
-    spec_path = state_dir / f'{name}.spec.json'
-    spec_path.write_text(json.dumps({**spec, 'name': name, 'settings': settings}, indent=1))
-    log = open(state_dir / f'{name}.log', 'a')
-    runner = subprocess.Popen([sys.executable, '-m', 'ring2.headless', 'run', str(spec_path), token],
-                              env={**os.environ, 'PYTHONPATH': str(ROOT)}, cwd=spec['workdir'],
-                              stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+    with open(state_dir / f'{name}.start.lock', 'w') as lock:  # one start per name at a time
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise Refused(f'ring2: {name} is being started by another command') from None
+        if running(settings, name):
+            raise Refused(f'ring2: {name} is already running')
+        stop(settings, name)  # whatever an earlier start that was cut short left behind
+        token = uuid.uuid4().hex
+        # The handle carries the token before the runner exists, so a start cut at any point can be stopped.
+        write_handle(settings, {'name': name, 'kind': 'headless', 'token': token,
+                                'thread': (read_handle(settings, name) or {}).get('thread')})
+        spec_path = state_dir / f'{name}.spec.json'
+        spec_path.write_text(json.dumps({**spec, 'name': name, 'settings': settings}, indent=1))
+        log = open(state_dir / f'{name}.log', 'a')
+        runner = subprocess.Popen([sys.executable, '-m', 'ring2.headless', 'run', str(spec_path), token],
+                                  env={**os.environ, 'PYTHONPATH': str(ROOT)}, cwd=spec['workdir'],
+                                  stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
 
-    def started():
-        if runner.poll() is not None:
-            raise SystemExit(f'ring2: the runner for {name} exited; see {log.name}')
-        state = read_handle(settings, name)
-        return state if state and state['token'] == token else None
-    return _wait('the headless session', started)
+        def started():
+            if runner.poll() is not None:
+                raise SystemExit(f'ring2: the runner for {name} exited; see {log.name}')
+            state = read_handle(settings, name)
+            return state if state and state['token'] == token and state.get('pid') else None
+        return _wait('the headless session', started)
 
 
 def stop(settings, name):
-    """True if a session was stopped, False if none was running."""
+    """True if a session, or anything left of one, was stopped. The identity is
+    the token on the runner's command line and the endpoint on the app-server's."""
     state = read_handle(settings, name)
     if not state or state.get('kind') != 'headless':
         return False
-    stopped = False
-    for pid, identity in ((state['pid'], state['token']), (state['server_pid'], state['endpoint'])):
-        if identity not in _command(pid):  # a pid is a location; the token or endpoint in its command line is the identity
-            continue
-        group = os.getpgid(pid)  # the runner, the codex launcher and the app-server it spawned
-
-        def gone():
-            return subprocess.run(['pgrep', '-g', str(group)], capture_output=True).returncode != 0
-        os.killpg(group, signal.SIGTERM)
-        try:  # an app-server with a turn in flight does not leave on SIGTERM until the turn ends
-            _wait('the session processes to end', gone, seconds=5)
-        except SystemExit:
-            os.killpg(group, signal.SIGKILL)
-            _wait('the session processes to end', gone)
-        stopped = True
-    return stopped
+    return stop_processes([state['token'], state.get('endpoint')])
 
 
 def restart(settings, name, spec):

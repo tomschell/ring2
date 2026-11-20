@@ -4,7 +4,7 @@ ring2 runs a small fleet of AI coding sessions and gives them a message bus and 
 A role claims a task, commits, has the commit tested and reviewed, and publishes it with plain git.
 Sessions run headless, with no terminal. Tasks live in a `bd` tracker.
 
-Status: an experiment with a working name. Only Codex is supported today. In a real-provider trial
+Status: an experiment with a working name. Codex and Claude Code are supported. In a real-provider trial
 (November 2026, Linux, three and four Codex roles) the roles published ten tasks with no hand
 repair, two of them changes to ring2 itself.
 
@@ -24,7 +24,7 @@ Three kinds of file. The rule between them is what keeps it small.
 | Kind | Files | May depend on | Counts against the core budget |
 |---|---|---|---|
 | **Core** | `bus` (post and read messages), `tasks` (queue, atomic claim, close; needs `bd`), `ship` (test result, reviewer PASS, fast-forward publish; needs `git`), `delivery` (each message into a session once), `app` (all of it from one config file; `status`) | the core only | yes (3,000 lines) |
-| **Adapter** | one per model harness: `headless` (Codex; needs `codex`). Claude Code is next. | the core | no |
+| **Adapter** | one per model harness: `headless` (Codex; needs `codex`), `claude` (Claude Code; needs `claude`). | the core | no |
 | **Optional** | `busd` (the bus server, one SQLite file), `watch` (restarts a role whose delivery died while a message waits), `console` (one read-only page) | the core | no |
 
 Only the Python standard library is imported. There is nothing to install: run from a clone.
@@ -142,6 +142,14 @@ restart (`--as ann restart`); to add a role, add its entry and start it; nothing
 Inside a session, `RING2_CONFIG` and `RING2_ROLE` are set, so the session can run the same commands
 without flags. To look at a session and leave again: `codex resume <thread> --remote <endpoint>`.
 
+A role with `"provider": "claude"` and a Claude model (for example `"model": "claude-sonnet-4-6"`)
+runs Claude Code headless (tested with 2.1.302). Set `claude` to override the binary and use `env`
+for its credentials and `CLAUDE_CONFIG_DIR`; `"resume": true` keeps its conversation over restarts.
+The adapter disables permission checks, MCP servers, account connectors, updates and telemetry,
+and ignores user/project settings and hooks. Status JSON includes `busy`. It waits for the CLI's
+user-message acknowledgment before advancing delivery. `claude attach` only finds background
+jobs, not these stream-driven sessions: stop the role before using `claude --resume <thread>`.
+
 ## Tests
 
 ```
@@ -169,8 +177,10 @@ Seen in the real-provider trial and left as they are:
 
 By design, or not built:
 
-- Only Codex. The core still holds a few Codex assumptions (what "delivered" and "last activity" mean, how a role's
+- The core still holds a few Codex assumptions (what "delivered" and "last activity" mean, how a role's
   processes are recognised); `delivery` still carries a Codex queue sender for a session you run yourself.
+- Claude stream-driven sessions cannot be watched with `claude attach`; stop before interactive resume.
+- Claude delivery waits for the current turn; a stalled turn delays later messages.
 - `status` cannot tell a stopped role from a dead one, so `watch` restarts either once a message waits for it. Stop
   watch before stopping a role you want to stay down. Nothing restarts watch itself.
 - `status` cannot see a session that is alive but stuck.

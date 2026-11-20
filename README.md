@@ -169,7 +169,7 @@ Seen in the real-provider trial and left as they are:
   channel-started turn is running is added by Codex to that same turn; the model answered only the typed input and
   never acted on the channel message (3 of 3 tries), and ring2 does not send it again. Watching without typing, and
   typing while the role is idle, were unaffected.
-- `test`, `publish` and `close` do not check that the caller holds the task.
+- `test` and `publish` do not check that the caller holds the task. `close` refuses only when a different label holds it, so a task nobody holds can be closed by any role.
 - `status` stops with the tracker's error when the tracker cannot be read, so it shows nothing about sessions then.
 - One label running two claims at the same instant can end up holding two tasks. Two different labels never got the
   same task (0 of 60).

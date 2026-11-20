@@ -1,12 +1,12 @@
 # ring2
 
-ring2 runs AI coding sessions (Codex) and gives them a message bus and a task queue.
-It is five small modules; each works alone, and they meet only at plain data.
-Sessions run headless with no terminal.
-Tasks live in a `bd` tracker; evidence and publication are plain comments and plain git.
-It is an experiment: small, tested against a mock model, not yet run against a real provider.
+ring2 runs a small fleet of AI coding sessions and gives them a message bus and a task queue.
+A role claims a task, commits, has the commit tested and reviewed, and publishes it with plain git.
+Sessions run headless, with no terminal. Tasks live in a `bd` tracker.
 
-`ring2` is a working name.
+Status: an experiment with a working name. Only Codex is supported today. In a real-provider trial
+(November 2026, Linux, three and four Codex roles) the roles published ten tasks with no hand
+repair, two of them changes to ring2 itself.
 
 ## The one sandbox rule
 
@@ -17,36 +17,17 @@ ring2 always marks the working folder of a role as trusted for the Codex app-ser
 `-c projects=...` setting on that process; the Codex config file is not edited), so Codex never asks
 "Trust this folder?".
 
-## Modules
-
-| Module | What it does | Needs installed | Needs running |
-|---|---|---|---|
-| `ring2.busd` | the bus server: retained one-line messages per channel, over HTTP, in one SQLite file | Python 3 (tested with 3.12) | nothing |
-| `ring2.bus` | post a message; watch for messages naming `@label` or `@all` | Python | the bus server |
-| `ring2.headless` | start, stop, restart named Codex sessions; a runner owns the thread and takes one message per turn | codex | nothing (a bus server if it should receive messages) |
-| `ring2.delivery` | gets bus messages into a running Codex session without interrupting its turn | codex | the bus server; a Codex app-server with a thread (yours or one ring2 started) |
-| `ring2.tasks` | queue, atomic claim, give-back, comments, labels, close | bd | embedded bd: nothing. Server-mode bd: the Dolt sql-server the tracker points at |
-| `ring2.ship` | test result for a commit, reviewer PASS, fast-forward of a chosen branch | git | nothing; the remote is any git URL or path |
-| `ring2` (`app.py`) | the modules assembled, from one JSON config file; `status` | all of the above | the bus server |
-| `ring2.watch` (optional) | restarts a role whose delivery died while a message waits for it | the app | the bus server |
-| `ring2.console` (optional) | one read-only page on 127.0.0.1: roles and the latest bus messages | the app | nothing |
-
-Only the Python standard library is imported. There is nothing to install: run from a clone.
-`watch.py` and `console.py` can be deleted; nothing else imports them.
-
-Both bd modes were tested. In server mode a bd call takes about 0.15 s and a claim about 0.5 s;
-embedded, about 0.4 s and 1.3 s. The claim was atomic in both (one winner in every one of 20
-six-process races per mode).
-
 ## How ring2 is put together
 
-ring2 has three kinds of file. The rule between them is what keeps it small.
+Three kinds of file. The rule between them is what keeps it small.
 
-| Kind | What it is | May depend on | Counts against the core budget |
+| Kind | Files | May depend on | Counts against the core budget |
 |---|---|---|---|
-| **Core** | the channel client, tasks, publishing, the app, and the seam a harness plugs into | the core only | yes (3,000 lines) |
-| **Adapter** | one file per model harness (Codex today; Claude Code next) | the core | no |
-| **Optional** | the bus server, watch, the console | the core | no |
+| **Core** | `bus` (post and read messages), `tasks` (queue, atomic claim, close; needs `bd`), `ship` (test result, reviewer PASS, fast-forward publish; needs `git`), `delivery` (each message into a session once), `app` (all of it from one config file; `status`) | the core only | yes (3,000 lines) |
+| **Adapter** | one per model harness: `headless` (Codex; needs `codex`). Claude Code is next. | the core | no |
+| **Optional** | `busd` (the bus server, one SQLite file), `watch` (restarts a role whose delivery died while a message waits), `console` (one read-only page) | the core | no |
+
+Only the Python standard library is imported. There is nothing to install: run from a clone.
 
 Rules:
 
@@ -72,7 +53,7 @@ that changes on restart, or guidance a role must read before it can work.
 
 ## Quick start
 
-All commands run from the clone's top directory.
+All commands run from the clone's top directory. Each part also runs alone.
 
 ### Bus
 
@@ -116,31 +97,6 @@ and ends with the time of that run, so every run is its own line and the newest 
 An error starting "not published" means the branch was not touched; "could not confirm whether
 this happened" means the push was sent and its outcome is unknown. Rerunning is safe either way.
 
-### Sessions (codex)
-
-```
-cat > sessions.json <<'EOF'
-{"state_dir": "/tmp/demo-state",
- "sessions": {"ann": {"model": "<model>", "workdir": "/path/to/repo", "prompt": "Your brief."}}}
-EOF
-python3 -m ring2.headless --config sessions.json start ann     # prints the handle: endpoint, thread, token
-python3 -m ring2.headless --config sessions.json restart ann
-python3 -m ring2.headless --config sessions.json stop ann
-```
-
-To look at a session and leave again: `codex resume <thread> --remote <endpoint>`.
-
-### Delivery (attach to a Codex session you already run)
-
-```
-python3 -m ring2.delivery --ring-url http://127.0.0.1:8770 --channel team --as ann \
-    --endpoint ws://127.0.0.1:<port> --thread <thread id> --cursor /tmp/ann.cursor
-```
-
-It hands each message to `codex queue`, which holds it while a turn is active. The cursor passes a
-message only once its turn has started, so after a restart a message may arrive twice but is not
-lost. One loop per thread: a second one refuses to start.
-
 ### The assembled app
 
 ```
@@ -181,12 +137,10 @@ that are on no remote ref. That is the one lost-work check; ring2 has no other. 
 branch was made leaves the task held; the next `claim`, or the role's next start, puts the directory
 on the branch under the same check, and leaves a task branch it is already on untouched.
 
-`status` shows a dead role the same whether it died or was stopped, so `watch` restarts either once
-a message is waiting for it. Stop watch before stopping a role you want to stay down.
-
-Here the evidence is kept as comments on the task. Every role runs headless; existing `headless`
-values are accepted and ignored. Inside a session, `RING2_CONFIG` and `RING2_ROLE` are set, so the session can run the
-same commands without flags.
+Here the evidence is kept as comments on the task. A role keeps its label, folder and task across a
+restart (`--as ann restart`); to add a role, add its entry and start it; nothing else is restarted.
+Inside a session, `RING2_CONFIG` and `RING2_ROLE` are set, so the session can run the same commands
+without flags. To look at a session and leave again: `codex resume <thread> --remote <endpoint>`.
 
 ## Tests
 
@@ -201,19 +155,32 @@ and takes several minutes.
 
 ## Known gaps
 
-- With a viewer attached to a role (`codex resume <thread> --remote <endpoint>`), typed input submitted while a turn started by a channel message is running is added by Codex to that same turn. In the real-provider trial, the model answered only the typed input and never acted on the channel message in 3 of 3 tries; ring2 does not deliver the message again because its turn had started. Watching without typing, and typing while the role is idle, were unaffected.
-- Never run against a real provider: sign-in, a Codex home shared by several roles, long real turns.
-- Only Codex. A Claude session needs its own session and delivery classes.
-- `watch` handles one case (delivery dead, message waiting) and was run against a killed headless runner only. Nothing restarts watch itself.
-- `status` cannot tell a stopped role from a dead one, cannot see a session that is alive but stuck, and its "last activity" is the change time of the delivery cursor.
-- Trial cases not covered by a test: a person typing in an attached TUI at the instant a headless bus message starts a turn; a delivery loop killed between `codex queue` accepting a message and the cursor passing it (the design resends it; not run); stop during a long tool run.
-- In a fleet home, a role that gives a task back with unpushed commits cannot claim again until it pushes or discards them.
-- Codex's own session files under its home grow with every thread; ring2 does not prune them.
+Seen in the real-provider trial and left as they are:
+
+- **Typing into a working role can drop a channel message.** With a viewer attached, input a person submits while a
+  channel-started turn is running is added by Codex to that same turn; the model answered only the typed input and
+  never acted on the channel message (3 of 3 tries), and ring2 does not send it again. Watching without typing, and
+  typing while the role is idle, were unaffected.
+- `test`, `publish` and `close` do not check that the caller holds the task.
+- `status` stops with the tracker's error when the tracker cannot be read, so it shows nothing about sessions then.
+- One label running two claims at the same instant can end up holding two tasks. Two different labels never got the
+  same task (0 of 60).
+- A role is shown a task's title only. It reads the description with `bd show <task>`.
+
+By design, or not built:
+
+- Only Codex. The core still holds a few Codex assumptions (what "delivered" and "last activity" mean, how a role's
+  processes are recognised); `delivery` still carries a Codex queue sender for a session you run yourself.
+- `status` cannot tell a stopped role from a dead one, so `watch` restarts either once a message waits for it. Stop
+  watch before stopping a role you want to stay down. Nothing restarts watch itself.
+- `status` cannot see a session that is alive but stuck.
+- Stopping a role does not release its task; `give-back` does. Removing a role leaves its folder.
+- A role that gives a task back with unpushed commits cannot claim again until it pushes or discards them.
 - The bus keeps 64 messages per channel. A session that falls further behind misses the rest.
-- A message goes on the `codex queue` command line with no size check beyond the bus's 4096 bytes.
 - bd claims carry a five-minute lease. ring2 never renews or reclaims it; behaviour after expiry is untested.
 - A later objection by a reviewer does not revoke an earlier PASS for the same commit.
 - A role's own bus posts are not filtered out of its delivery.
-- Tested on macOS with codex-cli 0.163.0, bd 1.2.1 and Dolt 2.3.0; an earlier state also on Linux with bd 1.3.2.
+- Codex's own session files grow with every thread; ring2 does not prune them.
 
-More detail is in `docs/`.
+Tested with codex-cli 0.163.0: the suite on macOS (bd 1.2.1, Dolt 2.3.0) and Linux (bd 1.3.2); the trial on Linux.
+Earlier design notes are in `docs/`.

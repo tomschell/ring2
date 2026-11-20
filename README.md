@@ -4,7 +4,7 @@ ring2 runs a small fleet of AI coding sessions and gives them a message bus and 
 A role claims a task, commits, has the commit tested and reviewed, and publishes it with plain git.
 Sessions run headless, with no terminal. Tasks live in a `bd` tracker.
 
-Status: an experiment with a working name. Codex and Claude Code are supported. In a real-provider trial
+Status: an experiment with a working name. Codex is supported; a Claude Code adapter exists and has run only against a local stand-in, not yet with a real Claude model or sign-in. In a real-provider trial
 (November 2026, Linux, three and four Codex roles) the roles published ten tasks with no hand
 repair, two of them changes to ring2 itself.
 
@@ -179,6 +179,7 @@ By design, or not built:
 
 - The core still holds a few Codex assumptions (what "delivered" and "last activity" mean, how a role's
   processes are recognised); `delivery` still carries a Codex queue sender for a session you run yourself.
+- The Claude adapter starts Claude Code in its minimal mode (`--bare`) to keep user settings and connectors out; whether that mode accepts a subscription sign-in or only an API key has not been tried.
 - Claude stream-driven sessions cannot be watched with `claude attach`; stop before interactive resume.
 - Claude delivery waits for the current turn; a stalled turn delays later messages.
 - `status` cannot tell a stopped role from a dead one, so `watch` restarts either once a message waits for it. Stop

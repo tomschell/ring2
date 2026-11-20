@@ -38,6 +38,38 @@ Both bd modes were tested. In server mode a bd call takes about 0.15 s and a cla
 embedded, about 0.4 s and 1.3 s. The claim was atomic in both (one winner in every one of 20
 six-process races per mode).
 
+## How ring2 is put together
+
+ring2 has three kinds of file. The rule between them is what keeps it small.
+
+| Kind | What it is | May depend on | Counts against the core budget |
+|---|---|---|---|
+| **Core** | the channel client, tasks, publishing, the app, and the seam a harness plugs into | the core only | yes (3,000 lines) |
+| **Adapter** | one file per model harness (Codex today; Claude Code next) | the core | no |
+| **Optional** | the bus server, watch, the console | the core | no |
+
+Rules:
+
+- **The core never names a harness.** A role's `provider` field picks its adapter. Nothing specific to one harness
+  (its process names, log files, flags, thread ids) appears in a core file.
+- **An adapter does five things and nothing else:** start a session in a folder with a first prompt; give it a message
+  as a turn and say whether the turn started; say whether it is alive and busy; stop it and everything it started;
+  optionally resume a conversation and let a person attach to watch.
+- **Anything removable is removed without breaking the rest.** Delete any adapter or optional file and ring2 still
+  runs with what is left.
+- **Optional files read the core's public commands** (`status`, the channel). The core never imports them.
+
+What goes in:
+
+- A change needs a failure that was actually seen, with a pointer to where. Not "could happen".
+- The fix is the smallest thing that works. First check whether git, the tracker or the harness already solves it.
+- No new record type, no new state, no new approval step.
+- Anything bigger than a few lines in the failing file is an optional file, not core.
+- Code that never ran in real use is deleted; git keeps it.
+
+What ring2 deliberately does not do: per-start folders, kept test checkouts, handoff notes, grants, a role identity
+that changes on restart, or guidance a role must read before it can work.
+
 ## Quick start
 
 All commands run from the clone's top directory.

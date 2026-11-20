@@ -100,12 +100,15 @@ def start(settings, name, spec, token=None):
     env = [arg for key, value in {**settings.get('env', {}), **spec.get('env', {})}.items()
            for arg in ('-e', f'{key}={value}')]
     since = time.time() - 1
+    # The session is made with no command of ours: a tmux server keeps the command line of the new-session
+    # that launched it, and with this session's token there, stopping this session would end the whole server.
     session_id = tmux(
         settings, 'new-session', '-d', '-P', '-F', '#{session_id}', '-s', f'ring2-{name}', '-n', 'server',
-        '-x', '160', '-y', '50', '-c', spec['workdir'], *env,
-        shlex.join([codex, 'app-server', '--listen', endpoint, *quiet, '-c', token_setting(token),
-                    '-c', trust_setting(spec['workdir'])]))  # ring2 always trusts the folders it uses
+        '-x', '160', '-y', '50', '-c', spec['workdir'], *env)
     tmux(settings, 'set-option', '-t', session_id, '@ring2_token', token)
+    tmux(settings, 'respawn-window', '-k', '-t', f'{session_id}:server', '-c', spec['workdir'], shlex.join(
+        [codex, 'app-server', '--listen', endpoint, *quiet, '-c', token_setting(token),
+         '-c', trust_setting(spec['workdir'])]))  # ring2 always trusts the folders it uses
     state = {'name': name, 'token': token, 'tmux_session': session_id, 'endpoint': endpoint, 'codex': codex,
              'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}
     write_handle(settings, state)

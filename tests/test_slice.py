@@ -12,7 +12,9 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from ring2 import sessions
 from tests.lab import HAVE_TOOLS, Lab, alive, wait
 
 ROLE = 'exp-role'
@@ -265,6 +267,34 @@ class SliceTest(unittest.TestCase):
         self.assertEqual(self.pane_pids(), stranger)
         self.lab.ring2('stop', label=ROLE)
         self.assertTrue(alive(stranger[0]))
+
+    def test_9c_a_start_that_failed_can_be_stopped_and_takes_no_other_session_with_it(self):
+        lab, socket = self.lab, self.lab.socket + '-b'
+        no_thread = lab.root / 'codex-no-thread'   # a real app-server, and a TUI that never makes a thread
+        no_thread.write_text(f'#!/bin/bash\n[ "$1" = app-server ] && exec "{lab.shims / "codex"}" "$@"\nexec sleep 600\n')
+        no_thread.chmod(0o755)
+        settings = {'tmux_socket': socket, 'state_dir': str(lab.root / 'state-b'), 'codex': str(lab.shims / 'codex'),
+                    'env': lab.settings['env']}
+        spec = {'model': lab.settings['roles'][ROLE]['model'], 'workdir': str(self.work), 'prompt': 'NINE-C'}
+        self.enterContext(mock.patch.dict(os.environ, lab.env, clear=True))
+        self.addCleanup(lambda: (subprocess.run(['tmux', '-L', socket, 'kill-server'], capture_output=True),
+                                 Path(f'/tmp/tmux-{os.getuid()}', socket).unlink(missing_ok=True)))
+        self.addCleanup(lambda: [sessions.stop(settings, name) for name in ('first', 'second')])
+        patient = sessions._wait
+        with mock.patch.object(sessions, '_wait', lambda what, check: patient(what, check, 15)), \
+                self.assertRaises(SystemExit) as failed:
+            sessions.start({**settings, 'codex': str(no_thread)}, 'first', spec)   # the first session of this tmux server
+        self.assertIn('timed out waiting for the Codex thread', str(failed.exception))
+        token = sessions.handle(settings, 'first')['token']
+        # What the failed start left is there to be seen, beside a healthy session, and stop ends it and only it.
+        self.assertTrue(sessions.running(settings, 'first'))
+        self.assertTrue(lab.run_any('pgrep', '-f', f'app-server.*{token}'))
+        sessions.start(settings, 'second', spec)
+        self.assertTrue(sessions.stop(settings, 'first'))
+        self.assertFalse(sessions.running(settings, 'first'))
+        self.assertEqual(lab.run_any('pgrep', '-f', f'app-server.*{token}'), '')
+        self.assertTrue(sessions.running(settings, 'second'), 'stopping one session ended the others in its tmux server')
+        self.assertTrue(sessions.stop(settings, 'second'))
 
 
 if __name__ == '__main__':

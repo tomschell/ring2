@@ -77,7 +77,8 @@ python3 -m ring2.ship --repo /path/to/clone --reviewer rae publish <commit>    #
 The test runs in a clean checkout of exactly that commit: one checkout and one output file per
 author inside the repository's git directory, replaced by every run, keeping the last 200 lines of
 output. Evidence is kept as git notes (ref `ring2`) on the commit. A PASS is a reviewer's line that
-starts `PASS <full commit>`; a test result is a line that starts `TEST PASS <full commit>`. `--remote` and `--branch` choose the target; `--no-review` skips the PASS.
+starts `PASS <full commit>`; a test result is a line that starts `TEST PASS <full commit>`
+and ends with the time of that run, so every run is its own line and the newest decides. `--remote` and `--branch` choose the target; `--no-review` skips the PASS.
 An error starting "not published" means the branch was not touched; "could not confirm whether
 this happened" means the push was sent and its outcome is unknown. Rerunning is safe either way.
 

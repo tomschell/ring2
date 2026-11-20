@@ -44,6 +44,10 @@ class TasksTest(unittest.TestCase):
         issue = self.lab.issue(task)
         return issue['status'], issue.get('assignee')
 
+    def results(self, task):
+        """The task's comments without the time each test execution carries."""
+        return [(author, text.split(' (run ')[0]) for author, text in self.lab.comments(task)]
+
     def timed(self, repeat, action):
         started = time.monotonic()
         for _ in range(repeat):
@@ -185,7 +189,7 @@ class TasksTest(unittest.TestCase):
         # The clean checkout has the commit's files and none of the working directory's dirt.
         check = 'test -f a.txt && test -f b.txt && test ! -e DIRTY.txt'
         self.assertEqual(lab.ring2('test', task_b, commit_b, check, label='impl').stdout.strip(), 'TEST PASS')
-        self.assertEqual(lab.comments(task_b), [('impl', f'TEST FAIL (exit 1) {commit_b} `test -f missing.txt`'),
+        self.assertEqual(self.results(task_b), [('impl', f'TEST FAIL (exit 1) {commit_b} `test -f missing.txt`'),
                                                 ('impl', f'TEST PASS {commit_b} `{check}`')])
         self.assertTrue((lab.work['impl'] / 'DIRTY.txt').exists())
 
@@ -237,6 +241,22 @@ class TasksTest(unittest.TestCase):
         self.assertEqual(lab.ring2('close', note, '--reason', 'answered on the bus', label='impl').stdout.strip(), 'closed')
         self.assertEqual(lab.issue(note)['close_reason'], 'answered on the bus')
 
+    def test_2a_the_newest_execution_decides(self):
+        lab, flag = self.lab, self.lab.root / 'flag'
+        task, commit = lab.task('tested three times'), lab.commit('impl', 'f.txt', 'f\n')
+
+        def run(*outcomes):
+            for passing in outcomes:
+                flag.touch() if passing else flag.unlink(missing_ok=True)
+                result = lab.ring2('test', task, commit, f'test -f {flag}', label='impl', check=False)
+                self.assertEqual(result.returncode, 0 if passing else 1)
+            return lab.ring2('publish', task, commit, label='impl', check=False).stderr
+        # The same command by the same author on the same commit: every execution is its own line.
+        self.assertIn('no passing test result', run(False, True, False))
+        self.assertEqual([text.split()[1] for _, text in lab.comments(task)], ['FAIL', 'PASS', 'FAIL'])
+        self.assertIn('no reviewer PASS', run(True, False, True))
+        self.assertEqual([text.split()[1] for _, text in lab.comments(task)], ['FAIL', 'PASS', 'FAIL', 'PASS', 'FAIL', 'PASS'])
+
     # 5a. the effect happened, its reply was lost
 
     def assert_unconfirmed(self, result):
@@ -261,10 +281,10 @@ class TasksTest(unittest.TestCase):
         lab.lose_reply('bd', 'comment')
         self.assert_unconfirmed(lab.ring2('review-pass', mine, commit, label='rev', check=False))
         self.assertEqual(lab.ring2('review-pass', mine, commit, label='rev').stdout.strip(), 'already recorded')
-        lab.lose_reply('bd', 'comment')
-        self.assert_unconfirmed(lab.ring2('test', mine, commit, 'test -f d.txt', label='impl', check=False))
+        lab.lose_reply('bd', 'comment')  # the one execution retries its own line, and it is there once
         self.assertEqual(lab.ring2('test', mine, commit, 'test -f d.txt', label='impl').stdout.strip(), 'TEST PASS')
-        self.assertEqual(lab.comments(mine), [('rev', f'PASS {commit}'), ('impl', f'TEST PASS {commit} `test -f d.txt`')])
+        self.assertFalse((lab.shims / 'lose-reply-bd').exists(), 'expected the comment reply to have been lost')
+        self.assertEqual(self.results(mine), [('rev', f'PASS {commit}'), ('impl', f'TEST PASS {commit} `test -f d.txt`')])
 
         # Publish: origin moved, the reply was lost; the rerun sees it is already there.
         lab.lose_reply('git', 'push')

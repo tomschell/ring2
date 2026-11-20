@@ -5,7 +5,7 @@ Settings: repo, remote (default origin), branch (default main), reviewers
 (labels whose PASS counts), review_required (default true).
 
 Evidence is prose lines, each with an author:
-  TEST PASS <commit> `<command>`   |   TEST FAIL (exit N) <commit> `<command>`
+  TEST PASS <commit> `<command>` (run <time>)   |   TEST FAIL (exit N) <commit> ...
   PASS <commit>
 An evidence store has read() -> [(author, text)] and add(author, text). The
 default keeps the lines as git notes on the commit (ref `ring2`) in `repo`;
@@ -23,9 +23,10 @@ import fcntl
 import re
 import shutil
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
-from ring2 import Refused, effect, need
+from ring2 import Refused, Unconfirmed, effect, need
 
 
 def git(settings, *args, check=True):
@@ -94,7 +95,12 @@ def test(settings, commit, command, evidence, author):
     if code:
         print('\n'.join(tail + [f'(the last {len(tail)} lines of output; kept in {output} until the next test)']))
     result = 'PASS' if code == 0 else f'FAIL (exit {code})'
-    evidence.add(author, f'TEST {result} {commit} `{command}`')
+    # Each execution is its own line, so the same outcome after a different one is recorded again.
+    line = f'TEST {result} {commit} `{command}` (run {datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%S.%fZ})'
+    try:
+        evidence.add(author, line)
+    except Unconfirmed:  # the reply may be what was lost: adding this same line again never records it twice
+        evidence.add(author, line)
     return code == 0
 
 

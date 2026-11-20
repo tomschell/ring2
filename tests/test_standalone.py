@@ -5,6 +5,8 @@ Run: python3 -m unittest tests.test_standalone -v
   ship      test, PASS and publication with no tracker (only git)
   delivery  attached to a Codex session that ring2 did not start
 """
+import contextlib
+import io
 import os
 import shlex
 import shutil
@@ -14,7 +16,9 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from ring2 import Unconfirmed, ship
 from tests.lab import CODEX, HAVE_TOOLS, REPO, Lab, wait
 
 
@@ -75,7 +79,8 @@ class TasksAloneTest(Plain):
 
 
 class ShipAloneTest(Plain):
-    def test_publish_with_no_tracker(self):
+    def clone(self):
+        """(origin, repo, commits): a bare origin holding the first of two commits made in its clone."""
         origin, repo = self.root / 'origin.git', self.root / 'repo'
         self.run_('git', 'init', '-q', '--bare', '-b', 'trunk', str(origin))
         self.run_('git', 'clone', '-q', str(origin), str(repo))
@@ -86,6 +91,50 @@ class ShipAloneTest(Plain):
             self.run_('git', 'commit', '-q', '-m', name, cwd=repo)
             commits.append(self.run_('git', 'rev-parse', 'HEAD', cwd=repo).stdout.strip())
         self.run_('git', 'push', '-q', 'origin', f'{commits[0]}:refs/heads/trunk', cwd=repo)
+        return origin, repo, commits
+
+    def in_process(self):
+        """ring2.ship called directly, with git under the test's clean environment and its output kept quiet."""
+        stack = contextlib.ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(mock.patch.dict(os.environ, self.env, clear=True))
+        stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+
+    def test_the_newest_execution_decides(self):
+        _, repo, (commit, other) = self.clone()
+        self.in_process()
+        settings, flag = {'repo': str(repo)}, self.root / 'flag'
+
+        def run(commit, *outcomes):
+            notes = ship.GitNotes(settings, commit)
+            for passing in outcomes:
+                flag.touch() if passing else flag.unlink(missing_ok=True)
+                self.assertEqual(ship.test(settings, commit, f'test -f {flag}', notes, 'ann'), passing)
+            return ship.tested(commit, notes), [text.split()[1] for _, text in notes.read()]
+        # The same command by the same author on the same commit: every execution is its own line.
+        self.assertEqual(run(commit, False, True, False), (False, ['FAIL', 'PASS', 'FAIL']))
+        self.assertEqual(run(other, True, False, True), (True, ['PASS', 'FAIL', 'PASS']))
+
+    def test_a_result_whose_reply_was_lost_is_recorded_once(self):
+        _, repo, (commit, _) = self.clone()
+        self.in_process()
+        settings = {'repo': str(repo)}
+
+        class LosesOneReply(ship.GitNotes):
+            lost = 0
+
+            def add(self, author, text):
+                answer = super().add(author, text)
+                if not self.lost:
+                    self.lost += 1
+                    raise Unconfirmed('the note was written; its reply was lost')
+                return answer
+        notes = LosesOneReply(settings, commit)
+        self.assertTrue(ship.test(settings, commit, 'true', notes, 'ann'))
+        self.assertEqual((notes.lost, len(notes.read())), (1, 1))
+
+    def test_publish_with_no_tracker(self):
+        origin, repo, commits = self.clone()
         commit = commits[1]
         ship = ('ship', '--repo', str(repo), '--branch', 'trunk', '--reviewer', 'rae')
         tip = lambda: self.run_('git', '--git-dir', str(origin), 'rev-parse', 'refs/heads/trunk').stdout.strip()
@@ -103,7 +152,7 @@ class ShipAloneTest(Plain):
         self.assertEqual(self.module(*ship, 'published', commits[0]).stdout.strip(), 'published')
         # The evidence is two plain lines in a git note on the commit.
         notes = self.run_('git', 'notes', '--ref', 'ring2', 'show', commit, cwd=repo).stdout.split('\n')
-        self.assertEqual([line for line in notes if line],
+        self.assertEqual([line.split(' (run ')[0] for line in notes if line],
                          [f'ann: TEST PASS {commit} `test -f two.txt`', f'rae: PASS {commit}'])
         self.assertFalse((self.root / 'home' / '.beads').exists())
 

@@ -105,7 +105,8 @@ class HomeTest(unittest.TestCase):
         self.assertFalse(checkout.exists())
         self.assertEqual(self.snapshot()[2], 3)
         self.assertEqual(sorted(path.name for path in checkout.parent.iterdir()), ['impl.lock', 'impl.log'])
-        self.assertEqual(lab.comments(task), [('impl', f'TEST PASS {commit} `true`')])
+        self.assertEqual([(author, text.split(' (run ')[0]) for author, text in lab.comments(task)],
+                         [('impl', f'TEST PASS {commit} `true`')])
 
 
 if __name__ == '__main__':

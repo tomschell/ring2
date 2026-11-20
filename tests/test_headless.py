@@ -262,5 +262,31 @@ class HeadlessTest(unittest.TestCase):
         self.assertEqual(lab.run_any('pgrep', '-f', state['token']), '')
 
 
+@unittest.skipUnless(HAVE_TOOLS, 'needs codex and bd')
+class OwnPostTest(unittest.TestCase):
+    def test_own_post_is_stored_and_passed_without_delivery(self):
+        from ring2 import app, console
+        lab = Lab({'self-role': ('implementer', 'OWN-POST-START')})
+        self.addCleanup(lab.close)
+        refused = subprocess.run(lab.ring2_argv('post', 'exp', 'no sender'), env=lab.env,
+                                 cwd=lab.root, capture_output=True, text=True)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn('name the sender with --as', refused.stderr)
+        lab.ring2('start', label='self-role')
+        text = '@self-role OWN-SELF-POST <hello>'
+        posted = json.loads(lab.ring2('post', 'exp', text, label='self-role').stdout)
+        self.assertEqual(posted['message'], f'self-role: {text}')
+        cursor = lab.root / 'state/self-role.cursor'
+        wait('own post passed', lambda: int(cursor.read_text()) == posted['sequence'])
+        self.assertEqual(lab.requests_with('OWN-SELF-POST'), [])
+        page = console.page(app.load(lab.config))
+        self.assertIn('<th>sender</th>', page)
+        self.assertIn('<td>self-role</td><td>@self-role OWN-SELF-POST &lt;hello&gt;</td>', page)
+        sequence = lab.post('@self-role FROM-ANOTHER-SENDER')
+        wait('other sender delivered', lambda: lab.requests_with('FROM-ANOTHER-SENDER'))
+        wait('other post passed', lambda: int(cursor.read_text()) == sequence)
+        self.assertEqual(lab.requests_with('OWN-SELF-POST'), [])
+
+
 if __name__ == '__main__':
     unittest.main()

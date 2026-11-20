@@ -115,13 +115,16 @@ cat > ring2.json <<'EOF'
   "rae": {"role": "reviewer",    "provider": "codex", "model": "<model>", "brief": "...", "workdir": "/path/to/clone-r"}}}
 EOF
 python3 -m ring2 --config ring2.json fleet start          # each role answers READY on the bus
-python3 -m ring2 --config ring2.json post team "@ann please claim a task"
+python3 -m ring2 --config ring2.json --as controller post team "@ann please claim a task"
 python3 -m ring2 --config ring2.json --as ann claim
 python3 -m ring2 --config ring2.json --as ann test <task> <commit> "make test"
 python3 -m ring2 --config ring2.json --as rae review-pass <task> <commit>
 python3 -m ring2 --config ring2.json --as ann publish <task> <commit> --close
 python3 -m ring2 --config ring2.json fleet stop
 ```
+
+The app's `post` requires a sender (`--as` or `RING2_ROLE`) and stores `<sender>: <text>`.
+A role's own posts remain on the bus but are passed over by its delivery cursor.
 
 While it runs:
 
@@ -199,7 +202,6 @@ By design, or not built:
 - The bus keeps 64 messages per channel. A session that falls further behind misses the rest.
 - bd claims carry a five-minute lease. ring2 never renews or reclaims it; behaviour after expiry is untested.
 - A later objection by a reviewer does not revoke an earlier PASS for the same commit.
-- A role's own bus posts are not filtered out of its delivery.
 - Codex's own session files grow with every thread; ring2 does not prune them.
 
 Tested with codex-cli 0.163.0: the suite on macOS (bd 1.2.1, Dolt 2.3.0) and Linux (bd 1.3.2); the trial on Linux.

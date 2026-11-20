@@ -78,7 +78,7 @@ class WatchConsoleTest(unittest.TestCase):
                                 f'was waiting (delivered up to {first})'])
         self.assertEqual(len(lab.requests_with('TAKEN-BEFORE-THE-DEATH')), 1, 'the delivered message is not sent again')
         self.assertNotEqual(json.loads(lab.ring2('status', label=ROLE).stdout)['state']['pid'], healthy_pid)
-        self.assertIn('watch: restarted', self.page_text())
+        self.assertIn('<td>watch</td><td>restarted', self.page_text())
 
         # Backoff: a second death straight away is not answered by a second restart.
         os.kill(json.loads(lab.ring2('status', label=ROLE).stdout)['state']['pid'], signal.SIGKILL)

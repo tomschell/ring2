@@ -42,7 +42,8 @@ def end(settings):
 
 
 def addressed(label, text):
-    return re.search(r'(?<![\w@])@(?:%s|all)(?![\w-])' % re.escape(label), text) is not None
+    return (not text.startswith(f'{label}: ')
+            and re.search(r'(?<![\w@])@(?:%s|all)(?![\w-])' % re.escape(label), text) is not None)
 
 
 def watch(settings, label, after=None):

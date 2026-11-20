@@ -179,6 +179,8 @@ class Lab:
                 *(['--as', label] if label else []), command, *args]
 
     def ring2(self, command, *args, label=None, config=None, check=True):
+        if command == 'post' and label is None:
+            label = 'tester'
         result = subprocess.run(self.ring2_argv(command, *args, label=label, config=config),
                                 cwd=self.root, env=self.env, capture_output=True, text=True)
         if check and result.returncode:

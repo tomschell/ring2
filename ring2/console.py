@@ -21,7 +21,7 @@ PAGE = '''<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="ref
 <h1>ring2</h1><p>{now}</p>
 <table><tr><th>role</th><th>session</th><th>delivery</th><th>task</th><th>last activity</th><th>waiting</th></tr>
 {rows}</table>
-<h2>bus</h2><table>{messages}</table>{problem}</body></html>'''
+<h2>bus</h2><table><tr><th>sequence</th><th>time</th><th>channel</th><th>sender</th><th>message</th></tr>{messages}</table>{problem}</body></html>'''
 
 
 def alive(flag):
@@ -38,8 +38,11 @@ def page(cfg, refresh=5):
                         f'<td>{age}</td><td>{app.waiting(row)}</td></tr>')
         if cfg.get('ring_url') and cfg.get('channels'):
             for message in bus.events(cfg, 0, wait=0)[-20:]:
+                sender, separator, text = message['message'].partition(': ')
+                if not separator:
+                    sender, text = '', sender
                 messages.append(f'<tr><td>{message["sequence"]}</td><td>{html.escape(message["created_at"])}</td>'
-                                f'<td>{html.escape(message["channel"])}</td><td>{html.escape(message["message"])}</td></tr>')
+                                f'<td>{html.escape(message["channel"])}</td><td>{html.escape(sender)}</td><td>{html.escape(text)}</td></tr>')
     except (OSError, SystemExit) as exc:
         problem = f'<p class="dead">could not read: {html.escape(str(exc))}</p>'
     return PAGE.format(refresh=refresh, now=time.strftime('%Y-%m-%d %H:%M:%S %Z', time.localtime(now)),

@@ -210,7 +210,7 @@ def fleet_start(cfg):
             print(f'{label}: did not start ({exc})')
     after = bus.end(cfg)
     for label in tokens:
-        bus.post(cfg, channel, f'@{label} fleet start: post "READY {label} <your ring2 session token>" '
+        bus.post(cfg, channel, f'fleet: @{label} fleet start: post "READY {label} <your ring2 session token>" '
                                f'on channel {channel} with the ring2 post command.')
     waiting, deadline = dict(tokens), time.monotonic() + cfg.get('ready_seconds', 60)
     while waiting and time.monotonic() < deadline:
@@ -253,7 +253,10 @@ def main(argv=None):
         for name in cfg.get('roles', {}):
             stop(cfg, name)
     elif command == 'post':
-        print(json.dumps(bus.post(cfg, *args)))
+        if not label:
+            raise Refused('ring2: name the sender with --as')
+        channel, text = args
+        print(json.dumps(bus.post(cfg, channel, f'{label}: {text}')))
     elif command == 'start':
         start(cfg, label)
     elif command == 'stop':

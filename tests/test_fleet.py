@@ -48,8 +48,8 @@ class FleetTest(unittest.TestCase):
         for label in ('alpha', 'beta'):
             state = json.loads(lab.ring2('status', label=label).stdout)
             self.assertTrue(state['running'])
-            self.assertIn(f'READY {label} {state["state"]["token"]}', bus)
-        self.assertIn(f'READY mute {STALE}', bus)
+            self.assertIn(f'{label}: READY {label} {state["state"]["token"]}', bus)
+        self.assertIn(f'mute: READY mute {STALE}', bus)
         self.assertTrue(posted)
 
         lab.ring2('fleet', 'stop')

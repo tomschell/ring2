@@ -1,5 +1,5 @@
-"""Start, stop and restart one role session: a tmux session holding a Codex
-app-server, the Codex TUI attached to it, and the bus follower.
+"""Start, stop and restart role sessions: one tmux session per role, holding a
+Codex app-server, the Codex TUI attached to it, and the bus follower.
 
 A session is identified by a random token stored both in the role's state file
 and on the tmux session (@ring2_token). Stop only ever kills the tmux session
@@ -16,7 +16,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-from ring2 import config, task
+from ring2 import bus, config, tracker
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -38,8 +38,8 @@ def find(cfg, token):
     return None
 
 
-def running(cfg):
-    state = config.read_state(cfg)
+def running(cfg, label):
+    state = config.read_state(cfg, label)
     return bool(state and find(cfg, state['token']))
 
 
@@ -53,10 +53,13 @@ def wait_for(what, check, seconds=60):
     raise SystemExit(f'ring2: timed out waiting for {what}')
 
 
-def startup_prompt(cfg, token):
-    lines = [cfg['brief'], '', f'You are role {cfg["role"]}. Your working directory is {cfg["workdir"]}.']
-    tasks = task.mine(cfg)
-    lines += [f'Your task: {item["id"]} {item["title"]}' for item in tasks] or ['You hold no task.']
+def startup_prompt(cfg, label, token):
+    role = config.role(cfg, label)
+    lines = [role['brief'], '',
+             f'You are {label} ({role["role"]}). Your working directory is {role["workdir"]}.']
+    lines += [f'Your task: {issue["id"]} {issue["title"]}' for issue in tracker.mine(cfg, label)] \
+        or ['You hold no task.']
+    lines.append(f'Ring2 commands: {sys.executable} {ROOT / "ring2"} <command>')
     lines.append(f'(ring2 session {token})')
     return '\n'.join(lines)
 
@@ -65,11 +68,11 @@ def codex_home(cfg):
     return Path(cfg['env'].get('CODEX_HOME') or os.environ.get('CODEX_HOME') or Path.home() / '.codex')
 
 
-def find_thread(cfg, token, since):
-    """The Codex thread whose first prompt carries our token (the TUI creates it)."""
+def find_rollout(cfg, token, since):
+    """The rollout file of the Codex thread whose first prompt carries our token."""
     for path in codex_home(cfg).glob('sessions/*/*/*/rollout-*.jsonl'):
         if path.stat().st_mtime >= since and token in path.read_text(errors='replace'):
-            return path.stem[-36:]
+            return path
     return None
 
 
@@ -80,52 +83,94 @@ def ready(url):
         return False
 
 
-def start(cfg):
-    if running(cfg):
-        raise SystemExit(f'ring2: {cfg["role"]} is already running')
+def start(cfg, label):
+    role = config.role(cfg, label)
+    if running(cfg, label):
+        raise SystemExit(f'ring2: {label} is already running')
     token = uuid.uuid4().hex
-    name = f'ring2-{cfg["role"]}'
+    name = f'ring2-{label}'
+    following = bool(cfg.get('ring_url') and cfg['channels'])
+    cursor = config.state_path(cfg, label, 'cursor')
+    if following and not cursor.exists():  # a new role starts at the end of the bus, not its history
+        cursor.parent.mkdir(parents=True, exist_ok=True)
+        cursor.write_text(str(bus.end(cfg)))
     with socket.socket() as probe:
         probe.bind(('127.0.0.1', 0))
         port = probe.getsockname()[1]
     endpoint = f'ws://127.0.0.1:{port}'
     quiet = ['-c', 'check_for_update_on_startup=false']
-    env = [arg for key, value in {**cfg['env'], 'RING2_CONFIG': cfg['path']}.items()
+    env = [arg for key, value in {**cfg['env'], 'RING2_CONFIG': cfg['path'], 'RING2_ROLE': label}.items()
            for arg in ('-e', f'{key}={value}')]
     since = time.time() - 1
     session_id = tmux(
         cfg, 'new-session', '-d', '-P', '-F', '#{session_id}', '-s', name, '-n', 'server',
-        '-x', '160', '-y', '50', '-c', cfg['workdir'], *env,
+        '-x', '160', '-y', '50', '-c', role['workdir'], *env,
         shlex.join([cfg['codex'], 'app-server', '--listen', endpoint, *quiet, *cfg['codex_args']]))
     tmux(cfg, 'set-option', '-t', session_id, '@ring2_token', token)
-    state = {'role': cfg['role'], 'token': token, 'tmux_session': session_id, 'name': name,
+    state = {'role': label, 'token': token, 'tmux_session': session_id, 'name': name,
              'endpoint': endpoint, 'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}
-    config.write_state(cfg, state)
+    config.write_state(cfg, label, state)
     wait_for('the Codex app-server', lambda: ready(f'http://127.0.0.1:{port}/readyz'))
-    tmux(cfg, 'new-window', '-d', '-t', session_id, '-n', 'tui', '-c', cfg['workdir'], shlex.join(
-        [cfg['codex'], '--remote', endpoint, '-C', cfg['workdir'], '--no-alt-screen', *quiet,
-         '--model', cfg['model'], *cfg['codex_args'], startup_prompt(cfg, token)]))
-    state['thread'] = wait_for('the Codex thread', lambda: find_thread(cfg, token, since))
-    config.write_state(cfg, state)
-    if cfg.get('ring_url') and cfg['channels']:
-        tmux(cfg, 'new-window', '-d', '-t', session_id, '-n', 'follow', '-c', cfg['workdir'], shlex.join(
-            ['env', f'PYTHONPATH={ROOT}', sys.executable, '-m', 'ring2', 'follow', cfg['path'], token]))
-    print(f'started {cfg["role"]}: tmux {name} ({session_id}), thread {state["thread"]}')
+    tmux(cfg, 'new-window', '-d', '-t', session_id, '-n', 'tui', '-c', role['workdir'], shlex.join(
+        [cfg['codex'], '--remote', endpoint, '-C', role['workdir'], '--no-alt-screen', *quiet,
+         '--model', role['model'], *cfg['codex_args'], startup_prompt(cfg, label, token)]))
+    rollout = wait_for('the Codex thread', lambda: find_rollout(cfg, token, since))
+    state.update(thread=rollout.stem[-36:], rollout=str(rollout))
+    config.write_state(cfg, label, state)
+    if following:
+        tmux(cfg, 'new-window', '-d', '-t', session_id, '-n', 'follow', '-c', role['workdir'], shlex.join(
+            [sys.executable, str(ROOT / 'ring2'), '--config', cfg['path'], 'follow', label, token]))
+    print(f'started {label}: tmux {name} ({session_id}), thread {state["thread"]}')
     return state
 
 
-def stop(cfg):
-    state = config.read_state(cfg)
+def stop(cfg, label):
+    state = config.read_state(cfg, label)
     session_id = state and find(cfg, state['token'])
     if not session_id:
-        print(f'{cfg["role"]} is not running')
+        print(f'{label} is not running')
         return False
     tmux(cfg, 'kill-session', '-t', session_id)
     wait_for('the session to end', lambda: not find(cfg, state['token']))
-    print(f'stopped {cfg["role"]}: tmux {state["name"]} ({session_id})')
+    print(f'stopped {label}: tmux {state["name"]} ({session_id})')
     return True
 
 
-def restart(cfg):
-    stop(cfg)
-    return start(cfg)
+def restart(cfg, label):
+    """Stop then start. Cut off in between, a rerun finds nothing to stop and starts."""
+    stop(cfg, label)
+    return start(cfg, label)
+
+
+def fleet_start(cfg):
+    """Start every role, then ask each to answer READY on the bus with its session token.
+
+    Only the session just started knows its token, and the request reaches it
+    through ordinary delivery. A role that fails to start or does not answer is
+    reported unavailable; the others proceed.
+    """
+    tokens, channel = {}, cfg['channels'][0]
+    for label in cfg['roles']:
+        try:
+            tokens[label] = start(cfg, label)['token']
+        except SystemExit as exc:
+            print(f'{label}: did not start ({exc})')
+    after = bus.end(cfg)
+    for label in tokens:
+        bus.post(cfg, channel, f'@{label} fleet start: post "READY {label} <your ring2 session token>" '
+                               f'on channel {channel} with the ring2 post command.')
+    waiting, deadline = dict(tokens), time.monotonic() + cfg['ready_seconds']
+    while waiting and time.monotonic() < deadline:
+        for message in bus.events(cfg, after, wait=2):
+            after = message['sequence']
+            for label, token in list(waiting.items()):
+                if f'READY {label} {token}' in message['message']:
+                    del waiting[label]
+    for label in cfg['roles']:
+        print(f'{label}: {"READY" if label in tokens and label not in waiting else "unavailable"}')
+    return [label for label in cfg['roles'] if label in tokens and label not in waiting]
+
+
+def fleet_stop(cfg):
+    for label in cfg['roles']:
+        stop(cfg, label)

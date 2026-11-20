@@ -5,6 +5,7 @@ A rule (substring, action) applies when the newest input item is a user
 message containing the substring:
   ('hold', threading.Event)  keep the turn active until the event is set
   ('call', name, arguments)  answer with one function call
+  ('fn', function)           answer with function(number, request), or plainly if it returns None
 After a function call's output comes back the reply is plain text.
 """
 import http.server
@@ -42,8 +43,9 @@ class MockModel:
                             self.event({'type': 'response.created', 'response': {'id': str(number)}})
                             rest[0].wait(120)
                         elif action == 'call':
-                            item = {'type': 'function_call', 'id': f'fc{number}', 'call_id': f'call{number}',
-                                    'name': rest[0], 'arguments': json.dumps(rest[1])}
+                            item = outer.call(number, rest[0], rest[1])
+                        elif action == 'fn':
+                            item = rest[0](number, data) or item
                         break
                 self.event({'type': 'response.created', 'response': {'id': str(number)}})
                 self.event({'type': 'response.output_item.done', 'item': item})
@@ -64,12 +66,17 @@ class MockModel:
         self.port = self.server.server_port
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
-    def codex_config(self, workdir):
-        return (f'model="gpt-6-astra"\nmodel_provider="mock"\n[model_providers.mock]\nname="offline"\n'
+    @staticmethod
+    def call(number, name, arguments):
+        return {'type': 'function_call', 'id': f'fc{number}', 'call_id': f'call{number}',
+                'name': name, 'arguments': json.dumps(arguments)}
+
+    def codex_config(self, workdirs, extra=''):
+        return (f'model="gpt-6-astra"\nmodel_provider="mock"\n{extra}[model_providers.mock]\nname="offline"\n'
                 f'base_url="http://127.0.0.1:{self.port}/v1"\nwire_api="responses"\n'
                 f'requires_openai_auth=false\n[features]\nremote_models=false\n'
                 f'responses_websockets=false\nresponses_websockets_v2=false\n'
-                f'[projects."{workdir}"]\ntrust_level="trusted"\n')
+                + ''.join(f'[projects."{workdir}"]\ntrust_level="trusted"\n' for workdir in workdirs))
 
     def user_texts(self, request):
         """The user message texts of one request, oldest first."""

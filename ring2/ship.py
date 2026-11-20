@@ -117,15 +117,19 @@ def unsaved(settings):
     return found
 
 
-def fresh_branch(settings, name):
-    """Start `name` at the published branch. Refuses, changing nothing, while the directory holds unsaved work."""
+def task_branch(settings, name):
+    """Put the directory on branch `name`. Already on it: nothing is touched. Otherwise start it at the
+    published branch; refuses, changing nothing, while the directory holds unsaved work, and never
+    resets a branch that already exists."""
+    left = git(settings, 'branch', '--show-current')
+    if left == name:
+        return name
     remote, branch = target(settings)
     git(settings, 'fetch', '--quiet', remote)
     if lost := unsaved(settings):
         raise Refused(f'ring2: {settings["repo"]} has unsaved work ({"; ".join(lost)}); '
                       f'commit and push it, or discard it yourself')
-    left = git(settings, 'branch', '--show-current')
-    git(settings, 'switch', '--quiet', '--no-track', '-C', name, f'{remote}/{branch}')
+    git(settings, 'switch', '--quiet', '--no-track', '-c', name, f'{remote}/{branch}')
     if left != name and '/' in name and left.startswith(name.split('/')[0] + '/'):
         # the previous branch of the same family; everything on it was just seen to be on a remote ref
         git(settings, 'branch', '--quiet', '-D', left)

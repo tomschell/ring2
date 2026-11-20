@@ -145,7 +145,9 @@ Instead of a `workdir` per role you can give the fleet one fixed home:
 state files. They are made if missing and reused by every start; nothing is created per start. In a
 home, a won `claim` puts the role's directory on a fresh branch `task/<id>` from the published
 branch. It refuses first, changing nothing, while the directory has uncommitted changes or commits
-that are on no remote ref. That is the one lost-work check; ring2 has no other.
+that are on no remote ref. That is the one lost-work check; ring2 has no other. A claim cut before the
+branch was made leaves the task held; the next `claim`, or the role's next start, puts the directory
+on the branch under the same check, and leaves a task branch it is already on untouched.
 
 `status` shows a dead role the same whether it died or was stopped, so `watch` restarts either once
 a message is waiting for it. Stop watch before stopping a role you want to stay down.

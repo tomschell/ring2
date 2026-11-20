@@ -77,17 +77,29 @@ def workdir(cfg, label):
     return str(Path(cfg['home']) / 'work' / label)
 
 
+def task_branch(cfg, label, task):
+    """Put the role's `home` directory on the branch of the task it holds. The tracker's assignee and
+    the directory's own branch are the whole state, so a setup that was cut short is finished here."""
+    settings = ship_settings(cfg, label)
+    try:
+        ship.task_branch(settings, f'task/{task}')
+    except Refused as exc:
+        raise Refused(f'{exc}\nring2: {label} holds {task}, but {settings["repo"]} is not on its branch '
+                      f'task/{task}; settle the above, then run claim again') from None
+
+
 def claim(cfg, label):
     """Claim the next task. In a `home` directory a won task starts on a fresh
-    branch from the published one, so the directory must hold no unsaved work."""
+    branch from the published one, so the directory must hold no unsaved work.
+    A held task whose directory is not on its branch yet is put there the same way."""
     managed = cfg.get('home') and not role(cfg, label).get('workdir')
     settings = ship_settings(cfg, label)
     if managed and not tasks.mine(cfg, label) and (lost := ship.unsaved(settings)):
         raise Refused(f'ring2: not claimed: {settings["repo"]} has unsaved work ({"; ".join(lost)}); '
                       f'commit and push it, or discard it yourself')
     answer = tasks.run(cfg, label, 'claim', [])
-    if managed and answer.startswith('WON '):
-        ship.fresh_branch(settings, f'task/{answer.split()[1]}')
+    if managed and answer != 'EMPTY':  # WON, or HELD: an earlier claim may have been cut before the branch was made
+        task_branch(cfg, label, answer.split()[1])
     return answer
 
 
@@ -105,10 +117,16 @@ def start(cfg, label):
     if cfg.get('home') and not entry.get('workdir'):
         need(cfg, 'app (home)', 'origin')
         ship.worktree({**cfg, 'repo': str(Path(cfg['home']) / 'repo')}, cfg['origin'], where)
-    mine = tasks.mine(cfg, label) if cfg.get('tracker_dir') else []
+    mine, unsettled = tasks.mine(cfg, label) if cfg.get('tracker_dir') else [], []
+    if mine and cfg.get('home') and not entry.get('workdir'):
+        try:
+            task_branch(cfg, label, mine[0]['id'])
+        except Refused as exc:  # the role still starts, and is told
+            unsettled = [str(exc)]
+            print(exc)
     prompt = '\n'.join([
         entry['brief'], '', f'You are {label} ({entry["role"]}). Your working directory is {where}.',
-        *([f'Your task: {tasks.brief(issue)}' for issue in mine] or ['You hold no task.']),
+        *([f'Your task: {tasks.brief(issue)}' for issue in mine] or ['You hold no task.']), *unsettled,
         f'Ring2 commands: {sys.executable} {ROOT / "ring2"} <command>'])
     following = bool(cfg.get('ring_url') and cfg.get('channels'))
     if following:  # fixed before the session exists, so nothing posted from now on is skipped

@@ -108,6 +108,62 @@ class HomeTest(unittest.TestCase):
         self.assertEqual([(author, text.split(' (run ')[0]) for author, text in lab.comments(task)],
                          [('impl', f'TEST PASS {commit} `true`')])
 
+    def cut_claim(self, title):
+        """A claim that wins the task and is then cut: the fetch its branch needs fails."""
+        lab = self.lab
+        for issue in lab.bd('list', '--assignee', 'impl', '--status', 'in_progress'):
+            lab.bd('close', issue['id'], '--reason', 'test tidy-up', '--force')
+        self.git('push', '-q', '--force', 'origin', 'HEAD:refs/heads/saved')   # what is here is on a remote ref
+        task, before = lab.task(title, '--labels', 'queue'), self.git('branch', '--show-current')
+        (lab.shims / 'refuse-git').write_text('fetch')
+        cut = lab.ring2('claim', label='impl', check=False)
+        (lab.shims / 'refuse-git').unlink()
+        self.assertIn('git fetch', cut.stderr)
+        self.assertIn(f'impl holds {task}, but', cut.stderr)
+        self.assertEqual((lab.issue(task).get('assignee'), self.git('branch', '--show-current')), ('impl', before))
+        self.assertNotEqual(before, f'task/{task}')
+        return task, before
+
+    def test_4_a_held_task_whose_branch_was_never_made_gets_it_on_the_next_claim(self):
+        lab = self.lab
+        task, before = self.cut_claim('claimed, then cut')
+        # Work begun on the old branch is not discarded: a clear refusal, nothing changed.
+        begun = lab.work['impl'] / 'begun.txt'
+        begun.write_text('begun on the previous branch\n')
+        refused = lab.ring2('claim', label='impl', check=False)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn('1 uncommitted change(s)', refused.stderr)
+        self.assertIn(f'impl holds {task}, but', refused.stderr)
+        self.assertEqual((self.git('branch', '--show-current'), begun.read_text()),
+                         (before, 'begun on the previous branch\n'))
+        begun.unlink()
+        # With nothing to lose, the retry finishes the setup.
+        self.assertIn(f'HELD {task}', lab.ring2('claim', label='impl').stdout)
+        self.assertEqual((self.git('branch', '--show-current'), self.git('rev-parse', 'HEAD')),
+                         (f'task/{task}', lab.origin_main()))
+        # A task branch that is already in use is left exactly as it is.
+        commit = lab.commit('impl', 'held.txt', 'work on the held task\n')
+        (lab.work['impl'] / 'more.txt').write_text('not committed\n')
+        self.assertIn(f'HELD {task}', lab.ring2('claim', label='impl').stdout)
+        self.assertEqual((self.git('branch', '--show-current'), self.git('rev-parse', 'HEAD')), (f'task/{task}', commit))
+        self.assertTrue((lab.work['impl'] / 'more.txt').exists())
+        (lab.work['impl'] / 'more.txt').unlink()
+
+    def test_5_a_role_start_finishes_the_branch_of_the_task_it_holds(self):
+        lab = self.lab
+        task, before = self.cut_claim('claimed, cut, then the role is started')
+        begun = lab.work['impl'] / 'begun.txt'
+        begun.write_text('begun on the previous branch\n')
+        started = lab.ring2('start', label='impl')   # the role starts all the same, and is told
+        self.assertIn(f'impl holds {task}, but', started.stdout)
+        wait('the session to be told', lambda: lab.requests_with(f'impl holds {task}, but'))
+        self.assertEqual((self.git('branch', '--show-current'), begun.exists()), (before, True))
+        begun.unlink()
+        lab.ring2('restart', label='impl')
+        self.assertEqual((self.git('branch', '--show-current'), self.git('rev-parse', 'HEAD')),
+                         (f'task/{task}', lab.origin_main()))
+        lab.ring2('stop', label='impl')
+
 
 if __name__ == '__main__':
     unittest.main()

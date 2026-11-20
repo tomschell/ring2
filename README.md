@@ -25,7 +25,7 @@ Three kinds of file. The rule between them is what keeps it small.
 |---|---|---|---|
 | **Core** | `bus` (post and read messages), `tasks` (queue, atomic claim, close; needs `bd`), `ship` (test result, reviewer PASS, fast-forward publish; needs `git`), `delivery` (each message into a session once), `session` (shared session lifecycle), `app` (all of it from one config file; `status`) | the core only | yes (3,000 lines) |
 | **Adapter** | one per model harness: `providers/codex.py` (Codex; needs `codex`), `providers/claude.py` (Claude Code; needs `claude`), `providers/external.py` (a person or outside session). | the core | no |
-| **Optional** | `busd` (the bus server, one SQLite file), `watch` (restarts a role whose delivery died while a message waits), `console` (one read-only page) | the core | no |
+| **Optional** | `busd` (the bus server, one SQLite file), `watch` (restarts a role whose delivery died while a message waits), `console` (one read-only page), `channel.py` (Claude Code controller channel server) | the core | no |
 
 Adapters live under `ring2/providers/` and load only when a role needs them. Shared start locks,
 tokens, handles, spec/log files, runner launch and process cleanup live in `ring2/session.py`.
@@ -263,3 +263,22 @@ By design, or not built:
 
 Tested with codex-cli 0.163.0: the suite on macOS (bd 1.2.1, Dolt 2.3.0) and Linux (bd 1.3.2); the trial on Linux.
 Earlier design notes are in `docs/`.
+
+## The controller
+
+Put the controller on the roster as a role with `"provider": "external"`; ring2 leaves its session
+alone. Receive messages in a terminal with `python3 -m ring2 --config /path/to/ring2.json --as controller listen`,
+or add this entry to the Claude Code session's `.mcp.json` (run with this repo on Python's import path):
+
+```json
+{"mcpServers": {"ring2": {"command": "python3", "args": ["-m", "ring2.channel", "--config", "/path/to/ring2.json", "--as", "controller"]}}}
+```
+
+Launch Claude Code with `--dangerously-load-development-channels server:ring2`. The server receives
+addressed messages and shares the listener's cursor and lock, so run only one receiver per label.
+It offers no tools; reply with the ordinary `python3 -m ring2 --config /path/to/ring2.json --as controller post <channel> "<text>"`.
+
+Queue a task by running `bd create "<title>" --description "<text>" --labels <queue label>` in the
+tracker directory, then send one post to the coordinator. To take published work elsewhere, run
+`git fetch` from the fleet's repository in your destination checkout, run the configured test command,
+then `git push` to your destination remote.

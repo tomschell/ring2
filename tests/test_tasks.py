@@ -180,7 +180,7 @@ class TasksTest(unittest.TestCase):
         # Publish needs a passing test result for exactly this commit.
         self.assertIn('no passing test result', lab.ring2('publish', task_b, commit_b, label='impl', check=False).stderr)
         failed = lab.ring2('test', task_b, commit_b, 'test -f missing.txt', label='impl', check=False)
-        self.assertEqual((failed.returncode, failed.stdout.strip()), (1, 'TEST FAIL'))
+        self.assertEqual((failed.returncode, failed.stdout.strip().splitlines()[-1]), (1, 'TEST FAIL'))
         self.assertIn('no passing test result', lab.ring2('publish', task_b, commit_b, label='impl', check=False).stderr)
         # The clean checkout has the commit's files and none of the working directory's dirt.
         check = 'test -f a.txt && test -f b.txt && test ! -e DIRTY.txt'

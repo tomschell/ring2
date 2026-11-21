@@ -153,7 +153,7 @@ For a Codex controller, hand each message to its interactive session with:
 python3 -m ring2 --config /path/to/ring2.json --as controller listen -- codex queue --thread ID --message
 ```
 
-Get `ID` from the controller session's `/status` display. This was verified on Codex 0.163.0;
+Get `ID` from the controller session's `/status` display. This was verified on Codex 0.163.0 and 0.171.0;
 `codex queue` is Codex's own command and may change. Failed commands are reported on standard
 error and retried before the cursor advances.
 

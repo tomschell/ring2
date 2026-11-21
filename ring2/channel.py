@@ -36,7 +36,7 @@ def serve(settings, label):
             after = int(cursor.read_text())
             while not stopped.is_set():
                 try:
-                    messages = bus.events(settings, after, wait=1)
+                    messages = bus.events(settings, after, wait=1, label=label)
                     for message in messages:
                         if stopped.is_set():
                             return

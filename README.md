@@ -141,9 +141,11 @@ Start Claude Code with this repository on Python's import path and
 `--dangerously-load-development-channels server:ring2`. Channels are an experimental Claude
 Code feature. The server offers no tools; reply with the `post` command.
 
-If the fleet runs on another machine or in a VM, run the server there, with `ssh` as the
-command. `status` and the console then show the controller as alive and whether messages are
-waiting.
+A listener on any machine is visible to `status` and the console: each fetch tells the bus the
+sequence it has read up to, and the bus remembers the latest report per label, in memory only.
+`status` shows the controller as `alive` when the bus heard from it in the last 90 seconds,
+`silent` with the time it last heard when longer, and `not heard from` when it has no record
+(for example after a bus restart, until the listener's next fetch).
 
 With any other harness, or by hand, `listen` prints the same messages in a terminal. Use one
 receiver per label. This setup is verified with Claude Code. For Codex, `codex queue` delivered
@@ -151,7 +153,7 @@ messages to an interactive session in our test, but ring2 ships no bridge for it
 
 ## Known gaps
 
-- An outside role's state is unknown unless its listener runs on the fleet's machine; `status` and the console show it as `external`.
+- An outside role's state comes from what the bus last heard from its listener, so a listener that has gone quiet shows as `silent`, not dead, and the bus forgets all of it when it restarts.
 - Typing in an attached Codex viewer during a channel turn can drop the channel request (3/3 trials). Watching, or typing while idle, was unaffected.
 - `test` and `publish` do not check task ownership; `close` refuses only another holder.
 - Tracker read errors prevent `status` from showing sessions.

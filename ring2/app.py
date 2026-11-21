@@ -32,6 +32,7 @@ from pathlib import Path
 
 from ring2 import Refused, bus, delivery, need, read_handle, session, ship, tasks
 
+HEARD_SECONDS = 90  # an outside listener the bus heard from within this long is alive
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -194,17 +195,27 @@ def status(cfg):
       loop       the runner delivering bus messages is running
       tasks      ids the tracker says the role holds (absent with no tracker)
       active, active_source   last activity time and its source, supplied by the adapter
-      external   an outside role with no listener on this machine; its state is unknown
+      external   an outside role with no listener on this machine; then `heard` is what the bus
+                 knows of its listener: 'alive', 'silent' or 'not heard from', with `heard_at` (epoch
+                 seconds) when silent, and `delivered` is the position it last reported (None if none)
       delivered, addressed   the cursor, and the newest retained bus sequence naming the role (absent with no bus)
     """
     following = bool(cfg.get('ring_url') and cfg.get('channels'))
     retained = bus.events(cfg, 0, wait=0) if following else []
-    rows = []
+    known, rows = None, []
     for label, entry in cfg.get('roles', {}).items():
         cursor = cursor_path(cfg, label)
         row = {'label': label, 'role': entry.get('role'), **adapter(cfg, label).status(cfg, label)}
         if cfg.get('tracker_dir'):
             row['tasks'] = [issue['id'] for issue in tasks.mine(cfg, label)]
+        if row.get('external'):
+            if known is None:
+                known = bus.listeners(cfg) if cfg.get('ring_url') else {}
+            record = known.get(label)
+            row['delivered'] = record['read'] if record else None
+            row['heard'] = 'not heard from' if not record else 'alive' if record['age'] <= HEARD_SECONDS else 'silent'
+            if row['heard'] == 'silent':
+                row['heard_at'] = int(time.time() - record['age'])
         if following:
             row.setdefault('delivered', int(cursor.read_text()) if cursor.exists() else None)
             row['addressed'] = max((message['sequence'] for message in retained
@@ -216,9 +227,16 @@ def status(cfg):
 def waiting(row):
     """'yes' when a retained bus message naming the role lies beyond its cursor, else 'no'.
     `delivered` and `addressed` are bus sequence numbers, not counts, so the text shows neither."""
-    if row.get('external'):
-        return '-'
+    if row.get('delivered') is None:
+        return '-' if row.get('external') else 'no'
     return 'yes' if row.get('delivered') is not None and row.get('addressed', 0) > row['delivered'] else 'no'
+
+
+def heard_text(row):
+    """What the bus knows of an outside role's listener: alive, silent since a time, or not heard from."""
+    if row['heard'] == 'silent':
+        return f'silent (last heard {time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(row["heard_at"]))})'
+    return row['heard']
 
 
 def status_text(rows):
@@ -226,8 +244,8 @@ def status_text(rows):
     for row in rows:
         age = f'{int(time.time()) - row["active"]}s ago ({row["active_source"]})' if 'active' in row else 'unknown'
         if row.get('external'):
-            lines.append(f'{row["label"]}: external, tasks {" ".join(row.get("tasks", [])) or "-"}, '
-                         f'active -, waiting: -')
+            lines.append(f'{row["label"]}: {heard_text(row)}, tasks {" ".join(row.get("tasks", [])) or "-"}, '
+                         f'active -, waiting: {waiting(row)}')
             continue
         lines.append(f'{row["label"]}: session {"alive" if row["session"] else "dead"}, '
                      f'loop {"alive" if row["loop"] else "dead"}, tasks {" ".join(row.get("tasks", [])) or "-"}, '

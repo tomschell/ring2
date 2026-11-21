@@ -1,4 +1,5 @@
 """An outside role listens on the normal bus/cursor without a managed session."""
+import http.server
 import json
 import os
 import select
@@ -6,10 +7,11 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
-from ring2 import app, busd, console, watch
+from ring2 import app, bus, busd, console, watch
 from tests.lab import REPO, wait
 
 
@@ -42,9 +44,9 @@ class ExternalTest(unittest.TestCase):
                 return result.stdout
 
             posted = json.loads(run('post', 'team', '@controller WAITING-BEFORE-LISTEN', label='coord'))
-            self.assertIn('controller: external, tasks -, active -, waiting: -', run('status'))
+            self.assertIn('controller: not heard from, tasks -, active -, waiting: -', run('status'))
             page = console.page(cfg)
-            self.assertIn('<td>external</td><td>external</td>', page)
+            self.assertIn('<td>not heard from</td><td>not heard from</td>', page)
             self.assertNotIn('class="dead"', page)
             self.assertIn('<td>-</td><td>-</td></tr>', page)
             self.assertEqual(watch.once(cfg, {}, 1), [])
@@ -83,9 +85,92 @@ class ExternalTest(unittest.TestCase):
                 listener.terminate()
                 listener.communicate(timeout=10)
             run('post', 'team', '@controller WAITING-AFTER-LISTEN', label='coord')
-            self.assertIn('waiting: -', run('status'))
-            self.assertEqual(watch.once(cfg, {}, 1), [])
             self.assertFalse(json.loads(run('status', '--json'))[0]['loop'])
+            self.assertEqual(watch.once(cfg, {}, 1), [])
+
+    def test_bus_remembers_a_listener_the_fleet_cannot_see(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bus_app = busd.RingApp(root / 'bus.db')
+            now = [1000.0]
+            bus_app.clock = lambda: now[0]
+            server = busd.RingServer(('127.0.0.1', 0), bus_app)
+            server.handle_error = lambda *args: None
+            self.addCleanup(server.server_close)
+            self.addCleanup(server.shutdown)
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            url = f'http://127.0.0.1:{server.server_port}'
+            roles = {'controller': {'provider': 'external', 'role': 'controller'}}
+
+            def write(name, state):
+                path = root / name
+                path.write_text(json.dumps({'state_dir': str(root / state), 'ring_url': url,
+                                            'channels': ['team'], 'roles': roles}))
+                return path
+            fleet, outside = write('fleet.json', 'fleet-state'), write('outside.json', 'outside-state')
+            cfg = app.load(fleet)
+            env = {**os.environ, 'PYTHONPATH': str(REPO)}
+            for name in ('RING2_ROLE', 'RING2_CONFIG'):
+                env.pop(name, None)
+            bus_app.post('team', 'coord: @controller ONE')
+            second = bus_app.post('team', 'coord: @controller TWO')['sequence']
+            self.assertEqual(app.status(cfg)[0]['heard'], 'not heard from')
+            listener = subprocess.Popen([sys.executable, '-B', '-m', 'ring2', '--config', str(outside),
+                                         '--as', 'controller', 'listen'], env=env, cwd=root,
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            try:
+                wait('listener read both', lambda: bus_app.listeners().get('controller', {}).get('read') == second)
+                row = app.status(cfg)[0]
+                self.assertEqual((row['external'], row['heard'], row['delivered']), (True, 'alive', second))
+                self.assertEqual(app.waiting(row), 'no')
+                self.assertIn('controller: alive, tasks -, active -, waiting: no', app.status_text([row]))
+                self.assertIn('<td>alive</td><td>alive</td>', console.page(cfg))
+                self.assertFalse((root / 'fleet-state').exists())
+            finally:
+                listener.terminate()
+                listener.communicate(timeout=10)
+            bus_app.post('team', 'coord: @controller THREE')
+            now[0] += 91
+            row = app.status(cfg)[0]
+            self.assertEqual(row['heard'], 'silent')
+            self.assertEqual(app.waiting(row), 'yes')
+            text = app.status_text([row])
+            self.assertIn(f'silent (last heard {time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(row["heard_at"]))})', text)
+            self.assertTrue(text.endswith('waiting: yes'))
+            page = console.page(cfg)
+            self.assertIn('<td>silent (last heard ', page)
+            self.assertNotIn('class="dead"', page)
+            self.assertAlmostEqual(row['heard_at'], time.time() - 91, delta=5)
+            bus_app.heard.clear()  # what a restart of the bus forgets
+            row = app.status(cfg)[0]
+            self.assertEqual((row['heard'], row['delivered']), ('not heard from', None))
+            self.assertEqual(app.waiting(row), '-')
+
+    def test_listener_and_bus_work_without_the_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bus_app = busd.RingApp(Path(directory) / 'bus.db')
+            server = busd.RingServer(('127.0.0.1', 0), bus_app)
+            self.addCleanup(server.server_close)
+            self.addCleanup(server.shutdown)
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            settings = {'ring_url': f'http://127.0.0.1:{server.server_port}', 'channels': ['team']}
+            bus_app.post('team', 'coord: hi')
+            self.assertEqual(len(bus.events(settings, 0, wait=0)), 1)  # a fetch that does not report
+            self.assertEqual(bus_app.listeners(), {})
+            self.assertEqual(len(bus.events(settings, 0, wait=0, label='controller')), 1)
+            self.assertEqual(bus_app.listeners()['controller']['read'], 0)
+
+            class Old(http.server.BaseHTTPRequestHandler):  # a bus from before: no /listeners
+                def do_GET(self):
+                    self.send_error(404)
+
+                def log_message(self, *args):
+                    pass
+            old = http.server.HTTPServer(('127.0.0.1', 0), Old)
+            self.addCleanup(old.server_close)
+            self.addCleanup(old.shutdown)
+            threading.Thread(target=old.serve_forever, daemon=True).start()
+            self.assertEqual(bus.listeners({'ring_url': f'http://127.0.0.1:{old.server_port}'}), {})
 
 
 if __name__ == '__main__':

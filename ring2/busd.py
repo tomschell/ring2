@@ -5,10 +5,15 @@
   POST /channels/<name>  {"message": "one line"}   -> 201 {"message": {sequence, channel, message, created_at}}
   GET  /events?channel=<name>&after=<n>&wait=<s>   -> {"messages": [...]}  long poll, at most 30 s
   GET  /messages?channel=<name>                    -> {"messages": [...]}  everything retained
+  GET  /listeners                                  -> {"listeners": {label: {read, age}}}
   GET  /capabilities                               -> protocol and size limits
 
 A message is one non-empty line of at most 4096 UTF-8 bytes. Each channel
 keeps its newest 64 messages; sequences are global and only grow.
+
+A fetch on /events may add `as=<label>&read=<n>`: the bus remembers, in memory
+only, the latest position each label reported and when it last heard from it.
+`age` is in seconds on the bus's own clock.
 
 Extracted from the Ring repository (ring/ring.py at commit aa06bacd): the
 store, the app, the HTTP handler and the server entry point, unchanged apart
@@ -192,6 +197,17 @@ class RingApp:
     def __init__(self, path: Path) -> None:
         self.store = RingStore(path)
         self.changed = threading.Condition()
+        self.clock = time.monotonic
+        self.heard: dict[str, tuple[int, float]] = {}
+
+    def hear(self, label: str, read: int) -> None:
+        with self.changed:
+            self.heard[label] = (read, self.clock())
+
+    def listeners(self) -> dict[str, dict[str, Any]]:
+        with self.changed:
+            now = self.clock()
+            return {label: {"read": read, "age": max(0.0, now - at)} for label, (read, at) in self.heard.items()}
 
     def post(self, channel: str, message: str) -> dict[str, Any]:
         with self.changed:
@@ -277,11 +293,19 @@ class RingHandler(BaseHTTPRequestHandler):
                 raise ValueError('snapshot queries are not supported by this server')
             if parsed.path == "/messages":
                 result = self.app.store.retained(channels)
+            elif parsed.path == "/listeners":
+                self._send(HTTPStatus.OK, {"listeners": self.app.listeners()})
+                return
             elif parsed.path == "/events":
                 after = int(query.get("after", ["0"])[0])
                 timeout = float(query.get("wait", ["30"])[0])
                 if after < 0:
                     raise ValueError("after must be nonnegative")
+                if query.get("as"):
+                    read = int(query.get("read", [after])[0])
+                    if read < 0:
+                        raise ValueError("read must be nonnegative")
+                    self.app.hear(query["as"][0], read)
                 result = self.app.wait(channels, after, timeout)
             else:
                 self._error(HTTPStatus.NOT_FOUND, "not found")

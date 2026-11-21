@@ -31,7 +31,7 @@ def listen(settings, name):
         cursor = directory / f'{name}.cursor'
         if not cursor.exists():
             delivery.save_cursor(cursor, 0)
-        delivery.follow(lambda after, wait: bus.events(settings, after, wait),
+        delivery.follow(lambda after, wait: bus.events(settings, after, wait, label=name),
                         lambda message: bus.addressed(name, message['message']),
                         Output(), cursor, log=lambda _: None)
 
@@ -49,7 +49,7 @@ def status(settings, name):
     cursor = directory / f'{name}.cursor'
     row = {'session': listening, 'loop': listening,
            'delivered': int(cursor.read_text()) if cursor.exists() else 0,
-           'external': not listening}  # no listener on this machine: its state is unknown, not dead
+           'external': not listening}  # no listener on this machine: app.status asks the bus about it
     if cursor.exists():
         row.update(active=int(cursor.stat().st_mtime), active_source='cursor')
     return row

@@ -12,6 +12,7 @@ sessions, never authority to run a command.
 import argparse
 import json
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -27,13 +28,27 @@ def post(settings, channel, text):
         return json.load(response)['message']
 
 
-def events(settings, after, wait=25):
-    """Messages on the channels with a sequence above `after`, waiting up to `wait` seconds for one."""
+def events(settings, after, wait=25, label=None):
+    """Messages on the channels with a sequence above `after`, waiting up to `wait` seconds for one.
+    A listener passes its `label`, which tells the bus it has read up to `after`."""
     need(settings, 'bus', 'ring_url', 'channels')
     query = urllib.parse.urlencode(
-        [('channel', channel) for channel in settings['channels']] + [('after', after), ('wait', wait)])
+        [('channel', channel) for channel in settings['channels']] + [('after', after), ('wait', wait)]
+        + ([('as', label), ('read', after)] if label else []))
     with urllib.request.urlopen(f'{settings["ring_url"]}/events?{query}', timeout=wait + 30) as response:
         return json.load(response)['messages']
+
+
+def listeners(settings):
+    """{label: {'read': sequence, 'age': seconds since the bus last heard from it}}; empty from a bus that keeps none."""
+    need(settings, 'bus', 'ring_url')
+    try:
+        with urllib.request.urlopen(f'{settings["ring_url"]}/listeners', timeout=30) as response:
+            return json.load(response)['listeners']
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return {}
+        raise
 
 
 def end(settings):

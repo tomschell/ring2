@@ -143,15 +143,19 @@ def task_branch(settings, name):
     return name
 
 
-def worktree(settings, origin, path):
+def worktree(settings, origin, path, label):
     """A working directory at a stable path: one shared clone of `origin` at
-    settings['repo'] and a linked worktree at `path`, each made only if missing."""
+    settings['repo'] and a linked worktree at `path`, each made only if missing.
+    The worktree commits as `label`, set in its own config, never the shared clone's."""
     remote, branch = target(settings)
     if not Path(settings['repo'], '.git').exists():
         effect(f'clone {origin}', ['git', 'clone', '--quiet', '--origin', remote, origin, settings['repo']])
     if not Path(path, '.git').exists():
         git(settings, 'worktree', 'prune')
         git(settings, 'worktree', 'add', '--quiet', '--detach', str(path), f'{remote}/{branch}')
+    git(settings, 'config', 'extensions.worktreeConfig', 'true')
+    for key, value in (('user.name', label), ('user.email', f'{label}@ring2.local')):
+        subprocess.run(['git', '-C', str(path), 'config', '--worktree', key, value], check=True)
     return str(path)
 
 

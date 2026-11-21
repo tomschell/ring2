@@ -167,3 +167,20 @@ class HomeTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+    def test_4_each_role_commits_under_its_own_label(self):
+        lab = self.lab
+        for label in lab.work:
+            lab.ring2('start', label=label)
+        env = {key: value for key, value in lab.env.items() if not key.startswith('GIT_')}
+        for label, workdir in lab.work.items():
+            (workdir / f'{label}.txt').write_text('mine\n')
+            subprocess.run(['git', 'add', f'{label}.txt'], cwd=workdir, env=env, check=True)
+            subprocess.run(['git', 'commit', '-q', '-m', label], cwd=workdir, env=env, check=True)
+            self.assertEqual(lab.run('git', 'log', '-1', '--format=%an <%ae> %cn <%ce>', cwd=workdir),
+                             f'{label} <{label}@ring2.local> {label} <{label}@ring2.local>')
+        shared = subprocess.run(['git', 'config', '--local', '--get-regexp', r'^user\.'], cwd=self.home / 'repo',
+                                env=env, capture_output=True, text=True)
+        self.assertEqual(shared.stdout, '', 'the shared clone holds no identity')
+        for label in lab.work:
+            lab.ring2('stop', label=label)

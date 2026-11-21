@@ -157,7 +157,7 @@ def start(cfg, label):
     where = workdir(cfg, label)
     if cfg.get('home') and not entry.get('workdir'):
         need(cfg, 'app (home)', 'origin')
-        ship.worktree({**cfg, 'repo': str(Path(cfg['home']) / 'repo')}, cfg['origin'], where)
+        ship.worktree({**cfg, 'repo': str(Path(cfg['home']) / 'repo')}, cfg['origin'], where, label)
     mine, unsettled = tasks.mine(cfg, label) if cfg.get('tracker_dir') else [], []
     if mine and cfg.get('home') and not entry.get('workdir'):
         try:

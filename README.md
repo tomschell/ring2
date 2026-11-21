@@ -147,9 +147,18 @@ sequence it has read up to, and the bus remembers the latest report per label, i
 `silent` with the time it last heard when longer, and `not heard from` when it has no record
 (for example after a bus restart, until the listener's next fetch).
 
-With any other harness, or by hand, `listen` prints the same messages in a terminal. Use one
-receiver per label. This setup is verified with Claude Code. For Codex, `codex queue` delivered
-messages to an interactive session in our test, but ring2 ships no bridge for it yet.
+For a Codex controller, hand each message to its interactive session with:
+
+```sh
+python3 -m ring2 --config /path/to/ring2.json --as controller listen -- codex queue --thread ID --message
+```
+
+Get `ID` from the controller session's `/status` display. This was verified on Codex 0.163.0;
+`codex queue` is Codex's own command and may change. Failed commands are reported on standard
+error and retried before the cursor advances.
+
+With any other harness, or by hand, `listen` prints the same messages in a terminal when no
+command is given. Use one receiver per label. The channel setup is verified with Claude Code.
 
 ## Known gaps
 

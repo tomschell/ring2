@@ -3,23 +3,32 @@ listen prints addressed messages and passes the same role cursor as a runner.
 The existing start lock is held while listening; no session handle is needed.
 """
 import fcntl
+import subprocess
+import sys
 from pathlib import Path
 
 from ring2 import Refused, bus, delivery, need
 
 
 class Output:
+    def __init__(self, command=()):
+        self.command = command
+
     def own(self):
         pass  # listen holds the role's start lock
 
     def send(self, text):
-        print(text.replace('\n', ' '), flush=True)
+        text = text.replace('\n', ' ')
+        if self.command:
+            subprocess.run([*self.command, text], check=True)
+        else:
+            print(text, flush=True)
 
     def started(self, marker):
         return True  # printing acknowledged the message
 
 
-def listen(settings, name):
+def listen(settings, name, command=()):
     need(settings, 'listen', 'ring_url', 'channels', 'state_dir')
     directory = Path(settings['state_dir'])
     directory.mkdir(parents=True, exist_ok=True)
@@ -33,7 +42,8 @@ def listen(settings, name):
             delivery.save_cursor(cursor, 0)
         delivery.follow(lambda after, wait: bus.events(settings, after, wait, label=name),
                         lambda message: bus.addressed(name, message['message']),
-                        Output(), cursor, log=lambda _: None)
+                        Output(command), cursor,
+                        log=lambda text: print(text, file=sys.stderr, flush=True) if command and 'retrying' in text else None)
 
 
 def status(settings, name):

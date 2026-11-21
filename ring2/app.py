@@ -5,7 +5,7 @@ Sessions:  start | stop | restart | status          (the --as role)
 Tasks:     task | claim | give-back TASK
            review-pass TASK COMMIT | test TASK COMMIT [COMMAND]
            publish TASK COMMIT [--close] | close TASK [COMMIT] [--reason TEXT] [--confirm]
-Bus:       post CHANNEL TEXT | listen
+Bus:       post CHANNEL TEXT | listen [-- COMMAND ...]
 
 One JSON config file serves every module; each command needs only its own
 module's settings (a task command needs tracker_dir and nothing about sessions).
@@ -318,7 +318,7 @@ def main(argv=None):
         listener = getattr(adapter(cfg, label), 'listen', None)
         if listener is None:
             raise Refused('ring2: this provider does not support listen')
-        listener(cfg, label)
+        listener(cfg, label, args)
     elif command == 'post':
         if not label:
             raise Refused('ring2: name the sender with --as')

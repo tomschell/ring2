@@ -88,6 +88,60 @@ class ExternalTest(unittest.TestCase):
             self.assertFalse(json.loads(run('status', '--json'))[0]['loop'])
             self.assertEqual(watch.once(cfg, {}, 1), [])
 
+    def test_command_handoff_retries_before_advancing(self):
+        for mode in ('success', 'retry', 'missing'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                server = busd.RingServer(('127.0.0.1', 0), busd.RingApp(root / 'bus.db'))
+                server.handle_error = lambda *args: None
+                threading.Thread(target=server.serve_forever, daemon=True).start()
+                config = root / 'ring2.json'
+                config.write_text(json.dumps({'state_dir': str(root / 'state'),
+                    'ring_url': f'http://127.0.0.1:{server.server_port}', 'channels': ['team'],
+                    'roles': {'controller': {'provider': 'external', 'role': 'controller'}}}))
+                posted = server.app.post('team', 'coord: @controller HANDOFF')
+                script = root / 'receiver.py'
+                script.write_text("""import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+with (root / 'attempts').open('a') as stream:
+    stream.write(sys.argv[-1] + '\\n')
+if sys.argv[2] == 'retry' and not (root / 'allow').exists():
+    sys.exit(7)
+with (root / 'received').open('a') as stream:
+    stream.write(sys.argv[-1] + '\\n')
+""")
+                command = ([str(root / 'absent')] if mode == 'missing' else
+                           [sys.executable, str(script), str(root), mode, '--message'])
+                listener = subprocess.Popen([sys.executable, '-B', '-m', 'ring2',
+                    '--config', str(config), '--as', 'controller', 'listen', '--', *command],
+                    env={**os.environ, 'PYTHONPATH': str(REPO)}, cwd=root,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                cursor = root / 'state/controller.cursor'
+                try:
+                    if mode != 'success':
+                        self.assertTrue(select.select([listener.stderr], [], [], 10)[0])
+                        self.assertIn('retrying', listener.stderr.readline())
+                        self.assertEqual(cursor.read_text(), '0')
+                        self.assertFalse((root / 'received').exists())
+                        if mode == 'missing':
+                            self.assertTrue(select.select([listener.stderr], [], [], 10)[0])
+                            self.assertIn('retrying', listener.stderr.readline())
+                            self.assertEqual(cursor.read_text(), '0')
+                            continue
+                        (root / 'allow').touch()
+                    wait('command acknowledged', lambda: cursor.exists() and
+                         cursor.read_text() == str(posted['sequence']))
+                    expected = f'Ring message {posted["sequence"]} on team: coord: @controller HANDOFF\n'
+                    self.assertEqual((root / 'received').read_text(), expected)
+                    attempts = (root / 'attempts').read_text().splitlines()
+                    self.assertEqual(attempts, [expected.rstrip()] * (2 if mode == 'retry' else 1))
+                    self.assertFalse(select.select([listener.stdout], [], [], 0.2)[0])
+                finally:
+                    listener.terminate()
+                    listener.communicate(timeout=10)
+                    server.shutdown()
+                    server.server_close()
+
     def test_bus_remembers_a_listener_the_fleet_cannot_see(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

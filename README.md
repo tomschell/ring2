@@ -18,7 +18,7 @@ It is small on purpose: Python's standard library only, one JSON config, and no 
 a message bus. It is young. Codex and Claude Code roles have both run real tasks with it; the
 known gaps are listed at the end.
 
-You need Python 3, git, [bd](https://github.com/steveyegge/beads) (the task tracker), and the Codex or Claude Code CLI,
+You need Python 3, git, [`bd`](https://github.com/steveyegge/beads) (the task tracker), and the Codex or Claude Code CLI,
 installed and signed in.
 
 ## The one sandbox rule
@@ -48,7 +48,7 @@ python3 -m ring2 --config ring2.json fleet start
 python3 -m ring2.console --config ring2.json &
 ```
 
-origin is the git repository the fleet works on. The console at http://127.0.0.1:8780 shows
+`origin` is the git repository the fleet works on. The console at http://127.0.0.1:8780 shows
 each role and the messages between them.
 
 Give the fleet a task:
@@ -58,16 +58,16 @@ Give the fleet a task:
 python3 -m ring2 --config ring2.json --as controller post team "@coord one task is queued"
 ```
 
-From here the roles do the rest themselves, with the commands their briefs give them: claim,
-test, review-pass and publish --close. You watch the console, and the change arrives on
-the main branch of origin. To stop:
+From here the roles do the rest themselves, with the commands their briefs give them: `claim`,
+`test`, `review-pass` and `publish --close`. You watch the console, and the change arrives on
+the `main` branch of `origin`. To stop:
 
 ```sh
 python3 -m ring2 --config ring2.json fleet stop
 ```
 
-Project rules for the agents belong in an AGENTS.md in your repository; both Codex and Claude
-Code read it. For a Claude Code role, use "provider": "claude" with a Claude model. Each part
+Project rules for the agents belong in an `AGENTS.md` in your repository; both Codex and Claude
+Code read it. For a Claude Code role, use `"provider": "claude"` with a Claude model. Each part
 of ring2 also runs alone and prints its own usage. How it is put together, and its tests:
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -128,7 +128,7 @@ controller: it files tasks, reads what the roles publish, and decides what leave
 We recommend keeping it outside the fleet, because it is the session a person types into, it
 checks the fleet's work from a copy the fleet cannot change, and it survives a fleet restart.
 
-Add it to the roster as an external role. ring2 never starts or stops it.
+Add it to the roster as an `external` role. ring2 never starts or stops it.
 
 With Claude Code, turn on the channel so messages addressed to the controller arrive in the
 session by themselves:
@@ -139,14 +139,14 @@ session by themselves:
 
 Start Claude Code with this repository on Python's import path and
 `--dangerously-load-development-channels server:ring2`. Channels are an experimental Claude
-Code feature. The server offers no tools; reply with the post command.
+Code feature. The server offers no tools; reply with the `post` command.
 
-If the fleet runs on another machine or in a VM, run the server there, with ssh as the
-command. status and the console then show the controller as alive and whether messages are
+If the fleet runs on another machine or in a VM, run the server there, with `ssh` as the
+command. `status` and the console then show the controller as alive and whether messages are
 waiting.
 
-With any other harness, or by hand, listen prints the same messages in a terminal. Use one
-receiver per label. This setup is verified with Claude Code. For Codex, codex queue delivered
+With any other harness, or by hand, `listen` prints the same messages in a terminal. Use one
+receiver per label. This setup is verified with Claude Code. For Codex, `codex queue` delivered
 messages to an interactive session in our test, but ring2 ships no bridge for it yet.
 
 ## Known gaps

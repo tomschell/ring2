@@ -51,7 +51,8 @@ class ChannelTest(unittest.TestCase):
                 notification = json.loads(receiver.stdout.readline())
                 self.assertEqual(notification, {'jsonrpc': '2.0', 'method': 'notifications/claude/channel',
                     'params': {'content': f'Ring message {posted["sequence"]} on team: coord: @controller ONE-REQUEST',
-                               'meta': {'channel': 'team', 'sequence': posted['sequence']}}})
+                               'meta': {'channel': 'team', 'sequence': str(posted['sequence'])}}})
+                self.assertTrue(all(isinstance(value, str) for value in notification['params']['meta'].values()))
                 cursor = root / 'state/controller.cursor'
                 wait('cursor passes all messages', lambda: int(cursor.read_text()) == own['sequence'])
                 self.assertFalse(select.select([receiver.stdout], [], [], 0.2)[0])

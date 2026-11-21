@@ -44,7 +44,7 @@ def serve(settings, label):
                         if bus.addressed(label, message['message']):
                             content = f'{delivery.marker(sequence)}{message["channel"]}: {message["message"]}'
                             write({'method': 'notifications/claude/channel', 'params': {
-                                'content': content, 'meta': {'channel': message['channel'], 'sequence': sequence}}})
+                                'content': content, 'meta': {'channel': message['channel'], 'sequence': str(sequence)}}})
                         delivery.save_cursor(cursor, sequence)
                         after = sequence
                 except OSError as exc:

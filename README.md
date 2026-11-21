@@ -61,7 +61,7 @@ App JSON keys unless marked otherwise; role fields belong inside each role. Serv
 | `origin` | unset | Repository to clone for a fleet home. |
 | `state_dir` | `home/state`, otherwise `state` beside the config | Handles, locks, logs, specs, cursors. |
 | `roles` | empty map | Entries keyed by stable label. |
-| `role` | required for managed roles | Role field; reviewer identifies whose PASS counts. |
+| `role` | required for every roster entry, including roles ring2 does not start | Role field; reviewer identifies whose PASS counts. |
 | `provider` | required | Role field; adapter filename without .py. |
 | `model` | required for managed roles | Role field; provider model name. |
 | `brief` | shipped file for the role | Role field; first instructions. |

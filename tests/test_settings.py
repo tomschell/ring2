@@ -1,6 +1,10 @@
 """Keep the one settings inventory aligned with configuration reads, not runtime records."""
 import ast
+import json
 import re
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -18,6 +22,26 @@ def owner(node):
 
 
 class SettingsDocumentationTest(unittest.TestCase):
+    def test_missing_roster_role_refuses_before_starting_anything(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / 'ring2.json'
+            roles = {'impl': {'role': 'implementer', 'provider': 'codex', 'model': 'unused'},
+                     'rev': {'role': 'reviewer', 'provider': 'codex', 'model': 'unused'},
+                     'controller': {'provider': 'external'}}
+            config.write_text(json.dumps({'roles': roles}))
+            commands = [['--as', label, 'start'] for label in roles]
+            commands += [['fleet', 'start'], ['status'], ['status', '--json']]
+            for command in commands:
+                with self.subTest(command=command):
+                    result = subprocess.run([sys.executable, '-B', '-m', 'ring2',
+                                             '--config', str(config), *command],
+                                            cwd=ROOT, capture_output=True, text=True, timeout=10)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(result.stderr.strip(), 'ring2: role controller needs a role')
+                    self.assertEqual(result.stdout, '')
+                    self.assertEqual(list(root.iterdir()), [config])
+
     def test_settings_inventory_matches_source_reads(self):
         read = set()
         inputs = {'cfg', 'settings', 'entry', 'spec', 'source', 'environ'}

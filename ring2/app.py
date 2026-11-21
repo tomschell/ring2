@@ -39,6 +39,9 @@ def load(path):
     need({'config': path}, 'app', 'config')
     path = Path(path).resolve()
     cfg = json.loads(path.read_text())
+    for label, entry in cfg.get('roles', {}).items():
+        if not entry.get('role'):
+            raise Refused(f'ring2: role {label} needs a role')
     cfg['path'] = str(path)
     if cfg.get('home'):  # one fixed fleet home: shared clone, a worktree per role, state; reused by every start
         cfg['home'] = str((path.parent / cfg['home']).resolve())

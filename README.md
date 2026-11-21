@@ -1,9 +1,25 @@
 # ring2
 
-ring2 runs a fleet of headless coding agents with a message bus, a `bd` task queue,
-and git test/review/publication commands. An experiment with a working name;
-Codex and Claude Code roles have both run with real models.
-Run from a clone with Python 3, git, bd, and your provider CLI installed and signed in.
+ring2 runs a small team of coding agents on one repository. You file tasks; the agents claim
+them, make the change, test it, review each other's work and publish it to a git branch.
+
+A fleet has four kinds of role:
+
+- **Implementers** claim a task, change the code and run the tests.
+- **A reviewer** reads each change and passes it or sends it back.
+- **A coordinator** tells free implementers when work is queued.
+- **A controller** is the session you work in. It sits outside the fleet.
+
+Every task takes the same path: claim, commit, test, review, publish, close. ring2 records the
+test result and the review against the exact commit, and refuses to publish a commit that lacks
+either.
+
+It is small on purpose: Python's standard library only, one JSON config, and no service beyond
+a message bus. It is young. Codex and Claude Code roles have both run real tasks with it; the
+known gaps are listed at the end.
+
+You need Python 3, git, [bd](https://github.com/steveyegge/beads) (the task tracker), and the Codex or Claude Code CLI,
+installed and signed in.
 
 ## The one sandbox rule
 
@@ -12,7 +28,7 @@ the machine boundary is the sandbox. ring2 does not handle permission prompts.
 
 ## Quick start
 
-Start the bus and create a tracker in an existing directory; replace the model and paths below:
+Run these from a clone of this repository. Replace the paths and the model:
 
 ```sh
 python3 -m ring2.busd &
@@ -21,35 +37,39 @@ cat > ring2.json <<'EOF'
 {"home":"/path/to/fleet", "origin":"/path/to/repo",
  "ring_url":"http://127.0.0.1:8770", "channels":["team"],
  "tracker_dir":"/path/to/tracker",
+ "test_command":"make test",
  "roles":{
+  "coord":{"role":"coordinator","provider":"codex","model":"<model>"},
   "ann":{"role":"implementer","provider":"codex","model":"<model>"},
   "rae":{"role":"reviewer","provider":"codex","model":"<model>"},
   "controller":{"role":"controller","provider":"external"}}}
 EOF
 python3 -m ring2 --config ring2.json fleet start
-(cd /path/to/tracker && bd create "First task" --description "What to change" --labels queue)
-python3 -m ring2 --config ring2.json --as controller post team "@ann please claim a task"
+python3 -m ring2.console --config ring2.json &
 ```
 
-The implementer claims, reads the full task with `bd show`, edits and commits;
-these commands show one task's remaining steps (substitute its ID and full commit):
+origin is the git repository the fleet works on. The console at http://127.0.0.1:8780 shows
+each role and the messages between them.
+
+Give the fleet a task:
 
 ```sh
-python3 -m ring2 --config ring2.json --as ann claim
-python3 -m ring2 --config ring2.json --as ann test <task> <commit> "make test"
-python3 -m ring2 --config ring2.json --as rae review-pass <task> <commit>
-python3 -m ring2 --config ring2.json --as ann publish <task> <commit> --close
-python3 -m ring2 --config ring2.json status
+(cd /path/to/tracker && bd create "First task" --description "What to change" --labels queue)
+python3 -m ring2 --config ring2.json --as controller post team "@coord one task is queued"
+```
+
+From here the roles do the rest themselves, with the commands their briefs give them: claim,
+test, review-pass and publish --close. You watch the console, and the change arrives on
+the main branch of origin. To stop:
+
+```sh
 python3 -m ring2 --config ring2.json fleet stop
 ```
 
-App evidence lives in task comments. Home claims create task branches and refuse unsaved work.
-Project rules belong in `AGENTS.md`; both harnesses read it headless.
-Use `provider: "claude"` with a Claude model for Claude Code.
-Its adapter disables account connectors and configured MCP servers; startup rejects any loaded MCP server.
-With fresh conversations, follow-ups must name the task, full commit and question.
-Standalone bus, tasks and ship commands print their own usage.
-Contributor architecture and tests: [CONTRIBUTING.md](CONTRIBUTING.md).
+Project rules for the agents belong in an AGENTS.md in your repository; both Codex and Claude
+Code read it. For a Claude Code role, use "provider": "claude" with a Claude model. Each part
+of ring2 also runs alone and prints its own usage. How it is put together, and its tests:
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Settings
 
@@ -103,19 +123,31 @@ App JSON keys unless marked otherwise; role fields belong inside each role. Serv
 
 ## The controller
 
-Use an `external` role. Receive addressed messages with
-`python3 -m ring2 --config ring2.json --as controller listen`, or configure Claude Code:
+Run one session outside the fleet and work with the fleet through it. We call it the
+controller: it files tasks, reads what the roles publish, and decides what leaves the machine.
+We recommend keeping it outside the fleet, because it is the session a person types into, it
+checks the fleet's work from a copy the fleet cannot change, and it survives a fleet restart.
+
+Add it to the roster as an external role. ring2 never starts or stops it.
+
+With Claude Code, turn on the channel so messages addressed to the controller arrive in the
+session by themselves:
 
 ```json
 {"mcpServers":{"ring2":{"command":"python3","args":["-m","ring2.channel","--config","/path/to/ring2.json","--as","controller"]}}}
 ```
 
-Run with this repo on Python's import path and
-`--dangerously-load-development-channels server:ring2`. Use one receiver per label;
-listener and channel server share the cursor and lock. The server offers no tools;
-reply with `python3 -m ring2 --config ring2.json --as controller post team "<text>"`.
-Running `listen` or the channel server on the fleet's machine, for example over ssh, makes the role's state visible to `status` and the console.
-Create tasks in the tracker with `bd create`, then notify the coordinator.
+Start Claude Code with this repository on Python's import path and
+`--dangerously-load-development-channels server:ring2`. Channels are an experimental Claude
+Code feature. The server offers no tools; reply with the post command.
+
+If the fleet runs on another machine or in a VM, run the server there, with ssh as the
+command. status and the console then show the controller as alive and whether messages are
+waiting.
+
+With any other harness, or by hand, listen prints the same messages in a terminal. Use one
+receiver per label. This setup is verified with Claude Code. For Codex, codex queue delivered
+messages to an interactive session in our test, but ring2 ships no bridge for it yet.
 
 ## Known gaps
 

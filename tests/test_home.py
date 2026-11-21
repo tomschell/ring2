@@ -164,11 +164,7 @@ class HomeTest(unittest.TestCase):
                          (f'task/{task}', lab.origin_main()))
         lab.ring2('stop', label='impl')
 
-
-if __name__ == '__main__':
-    unittest.main()
-
-    def test_4_each_role_commits_under_its_own_label(self):
+    def test_6_each_role_commits_under_its_own_label(self):
         lab = self.lab
         for label in lab.work:
             lab.ring2('start', label=label)
@@ -184,3 +180,7 @@ if __name__ == '__main__':
         self.assertEqual(shared.stdout, '', 'the shared clone holds no identity')
         for label in lab.work:
             lab.ring2('stop', label=label)
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -114,10 +114,12 @@ Run with this repo on Python's import path and
 `--dangerously-load-development-channels server:ring2`. Use one receiver per label;
 listener and channel server share the cursor and lock. The server offers no tools;
 reply with `python3 -m ring2 --config ring2.json --as controller post team "<text>"`.
+Running `listen` or the channel server on the fleet's machine, for example over ssh, makes the role's state visible to `status` and the console.
 Create tasks in the tracker with `bd create`, then notify the coordinator.
 
 ## Known gaps
 
+- An outside role's state is unknown unless its listener runs on the fleet's machine; `status` and the console show it as `external`.
 - Typing in an attached Codex viewer during a channel turn can drop the channel request (3/3 trials). Watching, or typing while idle, was unaffected.
 - `test` and `publish` do not check task ownership; `close` refuses only another holder.
 - Tracker read errors prevent `status` from showing sessions.

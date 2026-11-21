@@ -48,7 +48,8 @@ def status(settings, name):
         pass
     cursor = directory / f'{name}.cursor'
     row = {'session': listening, 'loop': listening,
-           'delivered': int(cursor.read_text()) if cursor.exists() else 0}
+           'delivered': int(cursor.read_text()) if cursor.exists() else 0,
+           'external': not listening}  # no listener on this machine: its state is unknown, not dead
     if cursor.exists():
         row.update(active=int(cursor.stat().st_mtime), active_source='cursor')
     return row

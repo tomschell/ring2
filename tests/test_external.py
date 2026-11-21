@@ -42,8 +42,11 @@ class ExternalTest(unittest.TestCase):
                 return result.stdout
 
             posted = json.loads(run('post', 'team', '@controller WAITING-BEFORE-LISTEN', label='coord'))
-            self.assertIn('waiting: yes', run('status'))
-            self.assertIn('<td>yes</td>', console.page(cfg))
+            self.assertIn('controller: external, tasks -, active -, waiting: -', run('status'))
+            page = console.page(cfg)
+            self.assertIn('<td>external</td><td>external</td>', page)
+            self.assertNotIn('class="dead"', page)
+            self.assertIn('<td>-</td><td>-</td></tr>', page)
             self.assertEqual(watch.once(cfg, {}, 1), [])
             for command in ('start', 'stop', 'restart'):
                 self.assertEqual(run(command, label='controller'), '')
@@ -80,7 +83,7 @@ class ExternalTest(unittest.TestCase):
                 listener.terminate()
                 listener.communicate(timeout=10)
             run('post', 'team', '@controller WAITING-AFTER-LISTEN', label='coord')
-            self.assertIn('waiting: yes', run('status'))
+            self.assertIn('waiting: -', run('status'))
             self.assertEqual(watch.once(cfg, {}, 1), [])
             self.assertFalse(json.loads(run('status', '--json'))[0]['loop'])
 

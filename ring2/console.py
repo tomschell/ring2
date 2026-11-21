@@ -34,9 +34,10 @@ def page(cfg, refresh=5):
     try:
         for row in app.status(cfg):
             age = f'{int(now - row["active"])} s ago ({row["active_source"]})' if 'active' in row else 'unknown'
+            outside = row.get('external')
             rows.append(f'<tr id="{html.escape(row["label"])}"><td>{html.escape(row["label"])} ({html.escape(str(row["role"]))})</td>'
-                        f'{alive(row["session"])}{alive(row["loop"])}<td>{html.escape(" ".join(row.get("tasks", [])) or "-")}</td>'
-                        f'<td>{age}</td><td>{app.waiting(row)}</td></tr>')
+                        f'{"<td>external</td>" * 2 if outside else alive(row["session"]) + alive(row["loop"])}<td>{html.escape(" ".join(row.get("tasks", [])) or "-")}</td>'
+                        f'<td>{"-" if outside else age}</td><td>{app.waiting(row)}</td></tr>')
         if cfg.get('ring_url') and cfg.get('channels'):
             for message in reversed(bus.events(cfg, 0, wait=0)[-20:]):
                 sender, separator, text = message['message'].partition(': ')

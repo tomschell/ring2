@@ -194,6 +194,7 @@ def status(cfg):
       loop       the runner delivering bus messages is running
       tasks      ids the tracker says the role holds (absent with no tracker)
       active, active_source   last activity time and its source, supplied by the adapter
+      external   an outside role with no listener on this machine; its state is unknown
       delivered, addressed   the cursor, and the newest retained bus sequence naming the role (absent with no bus)
     """
     following = bool(cfg.get('ring_url') and cfg.get('channels'))
@@ -215,6 +216,8 @@ def status(cfg):
 def waiting(row):
     """'yes' when a retained bus message naming the role lies beyond its cursor, else 'no'.
     `delivered` and `addressed` are bus sequence numbers, not counts, so the text shows neither."""
+    if row.get('external'):
+        return '-'
     return 'yes' if row.get('delivered') is not None and row.get('addressed', 0) > row['delivered'] else 'no'
 
 
@@ -222,6 +225,10 @@ def status_text(rows):
     lines = []
     for row in rows:
         age = f'{int(time.time()) - row["active"]}s ago ({row["active_source"]})' if 'active' in row else 'unknown'
+        if row.get('external'):
+            lines.append(f'{row["label"]}: external, tasks {" ".join(row.get("tasks", [])) or "-"}, '
+                         f'active -, waiting: -')
+            continue
         lines.append(f'{row["label"]}: session {"alive" if row["session"] else "dead"}, '
                      f'loop {"alive" if row["loop"] else "dead"}, tasks {" ".join(row.get("tasks", [])) or "-"}, '
                      f'active {age}, waiting: {waiting(row)}')

@@ -125,10 +125,16 @@ App JSON keys unless marked otherwise; role fields belong inside each role. Serv
 
 Run one session outside the fleet and work with the fleet through it. We call it the
 controller: it files tasks, reads what the roles publish, and decides what leaves the machine.
+The recommended setup is the fleet inside a VM (or a machine given over to agents) and the
+controller on a different machine, outside that sandbox. Permission checks are off for the
+fleet, so its agents can change anything on their own machine; the controller's copy of the
+work is out of their reach only when it is on another machine.
 We recommend keeping it outside the fleet, because it is the session a person types into, it
 checks the fleet's work from a copy the fleet cannot change, and it survives a fleet restart.
 
 Add it to the roster as an `external` role. ring2 never starts or stops it.
+The channel server and the `listen` command run on the fleet's machine and can be started
+from the controller's machine over ssh.
 
 With Claude Code, turn on the channel so messages addressed to the controller arrive in the
 session by themselves:

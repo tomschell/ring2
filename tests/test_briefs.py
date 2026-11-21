@@ -14,7 +14,7 @@ class BriefTest(unittest.TestCase):
             cfg = {'path': str(Path(root) / 'config.json'), 'state_dir': root,
                    'roles': {'worker': entry}}
             with patch.object(app.session, 'start', return_value={'pid': 1, 'thread': 'test'}) as start:
-                for role in ('implementer', 'reviewer', 'coordinator'):
+                for role in ('implementer', 'reviewer', 'coordinator', 'controller'):
                     entry['role'] = role
                     app.start(cfg, 'worker')
                     prompt = start.call_args.args[2]['prompt']

@@ -123,8 +123,12 @@ App JSON keys unless marked otherwise; role fields belong inside each role. Serv
 
 ## The controller
 
-Run one session outside the fleet and work with the fleet through it. We call it the
-controller: it files tasks, reads what the roles publish, and decides what leaves the machine.
+To try ring2, a terminal and the console are enough; no controller session is needed.
+To run a fleet for real, start a Claude Code or Codex session in a folder of its own, not in
+a clone of the repository the fleet works on, and copy `ring2/briefs/controller.md` into that
+folder's `AGENTS.md`. Keep a working copy of the repository there for reading the fleet's changes.
+
+The controller files tasks, reads what the roles publish, and decides what leaves the machine.
 The recommended setup is the fleet inside a VM (or a machine given over to agents) and the
 controller on a different machine, outside that sandbox. Permission checks are off for the
 fleet, so its agents can change anything on their own machine; the controller's copy of the

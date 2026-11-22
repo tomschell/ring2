@@ -80,6 +80,12 @@ def test(settings, commit, command, evidence, author):
         command = configured
     need({'command': command}, 'test', 'command')
     commit = full(settings, commit)
+    remote, branch = target(settings)
+    if git(settings, 'ls-remote', remote, f'refs/heads/{branch}'):
+        git(settings, 'fetch', '--quiet', remote, branch)
+        head = full(settings, 'FETCH_HEAD')
+        if git(settings, 'merge-base', '--is-ancestor', head, commit, check=False).returncode:
+            raise Refused(f'ring2: not tested: {commit} does not contain {remote} {branch} {head}; rebase onto it first')
     checkout = Path(git(settings, 'rev-parse', '--path-format=absolute', '--git-common-dir')) / 'ring2-test' / author
     checkout.parent.mkdir(exist_ok=True)
     output = checkout.with_name(f'{author}.log')

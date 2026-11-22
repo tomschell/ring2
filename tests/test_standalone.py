@@ -150,6 +150,38 @@ class ShipAloneTest(Plain):
         self.assertEqual(run(commit, False, True, False), (False, ['FAIL', 'PASS', 'FAIL']))
         self.assertEqual(run(other, True, False, True), (True, ['PASS', 'FAIL', 'PASS']))
 
+    def test_a_commit_behind_the_published_branch_is_not_tested(self):
+        origin, repo, (base, head) = self.clone()
+        # Advance the remote without updating this clone's remote-tracking ref.
+        self.run_('git', '--git-dir', str(origin), 'fetch', '-q', str(repo), f'{head}:refs/heads/trunk')
+        self.in_process()
+        settings = {'repo': str(repo), 'branch': 'trunk'}
+        notes = ship.GitNotes(settings, base)
+        flag = self.root / 'ran'
+        with self.assertRaises(Refused) as refused:
+            ship.test(settings, base, f'touch {flag}', notes, 'ann')
+        self.assertEqual(str(refused.exception),
+                         f'ring2: not tested: {base} does not contain origin trunk {head}; rebase onto it first')
+        self.assertFalse(flag.exists())
+        self.assertEqual(notes.read(), [])
+        self.assertFalse((repo / '.git' / 'ring2-test').exists())
+
+    def test_a_commit_containing_the_published_branch_is_tested(self):
+        _, repo, (_, commit) = self.clone()
+        self.in_process()
+        settings = {'repo': str(repo), 'branch': 'trunk'}
+        notes = ship.GitNotes(settings, commit)
+        self.assertTrue(ship.test(settings, commit, 'test -f two.txt', notes, 'ann'))
+        self.assertTrue(ship.tested(commit, notes, 'test -f two.txt'))
+
+    def test_a_missing_remote_branch_does_not_prevent_testing(self):
+        _, repo, (_, commit) = self.clone()
+        self.in_process()
+        settings = {'repo': str(repo), 'branch': 'unpublished'}
+        notes = ship.GitNotes(settings, commit)
+        self.assertTrue(ship.test(settings, commit, 'test -f two.txt', notes, 'ann'))
+        self.assertTrue(ship.tested(commit, notes, 'test -f two.txt'))
+
     def test_a_result_whose_reply_was_lost_is_recorded_once(self):
         _, repo, (commit, _) = self.clone()
         self.in_process()

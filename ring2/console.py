@@ -17,8 +17,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ring2 import app, bus
 
 PAGE = '''<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="{refresh}">
-<title>ring2</title><style>body{{font:14px monospace;margin:2em}}td,th{{padding:2px 12px;text-align:left}}
-.dead{{color:#b00020;font-weight:bold}}</style></head><body>
+<title>ring2</title><style>:root{{color-scheme:dark}}body{{font:14px monospace;margin:2em}}td,th{{padding:2px 12px;text-align:left}}
+.dead{{color:#ff6b6b;font-weight:bold}}</style></head><body>
 <h1>ring2</h1><p>{now}</p>
 <table><tr><th>role</th><th>session</th><th>delivery</th><th>task</th><th>last activity</th><th>waiting</th></tr>
 {rows}</table>

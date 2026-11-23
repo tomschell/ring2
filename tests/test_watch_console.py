@@ -72,6 +72,7 @@ class WatchConsoleTest(unittest.TestCase):
         lab.ring2('start', label=ROLE)
         self.background('ring2.console', '--port', str(self.port))
         wait('the console', lambda: self.safe_row())
+        self.assertIn('color-scheme:dark', self.page_text())
         self.assertEqual(self.row()[:4], [f'{ROLE} (implementer)', 'alive', 'alive', task])
         healthy = self.status()
         self.assertEqual((healthy['session'], healthy['loop'], healthy['tasks']), (True, True, [task]))

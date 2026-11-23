@@ -21,6 +21,7 @@ known. Either way a rerun never moves the branch twice.
 """
 import argparse
 import fcntl
+import hashlib
 import re
 import shutil
 import subprocess
@@ -204,12 +205,26 @@ def has_pass(settings, commit, evidence):
 
 
 def patch_id(settings, commit, branch):
+    """Identifies a change by its diff including whitespace, whatever lines surround it, so a PASS
+    is carried only to the same change."""
     base = git(settings, 'merge-base', branch, commit)
-    diff = git(settings, 'diff', '--no-ext-diff', '--no-textconv', '--binary', base, commit)
-    result = subprocess.run(['git', 'patch-id', '--stable'], input=diff, capture_output=True, text=True)
+    # Bytes, unstripped: line endings and trailing whitespace are part of the change.
+    diff = subprocess.run(['git', '-C', settings['repo'], 'diff', '--no-ext-diff', '--no-textconv', '--binary', base, commit],
+                          capture_output=True)
+    if diff.returncode:
+        raise Refused(f'ring2: git diff: {diff.stderr.decode().strip()}')
+    diff = diff.stdout
+    result = subprocess.run(['git', 'patch-id', '--verbatim'], input=diff, capture_output=True)
+    exact = b''
     if result.returncode:
-        raise Refused(f'ring2: git patch-id: {result.stderr.strip()}')
-    return result.stdout.split()[0] if result.stdout.strip() else None
+        # git before 2.38 has no --verbatim: --stable ignores whitespace, so add a digest of
+        # the diff without the lines that a rebase changes (blob ids and hunk positions).
+        result = subprocess.run(['git', 'patch-id', '--stable'], input=diff, capture_output=True)
+        exact = b'-' + hashlib.sha1(b''.join(line + b'\n' for line in diff.split(b'\n')
+                                             if not line.startswith((b'index ', b'@@')))).hexdigest().encode()
+    if result.returncode:
+        raise Refused(f'ring2: git patch-id: {result.stderr.decode().strip()}')
+    return result.stdout.split()[0].decode() + exact.decode() if result.stdout.strip() else None
 
 
 def carried_pass(settings, commit, evidence, branch):

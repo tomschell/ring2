@@ -110,6 +110,15 @@ class ShipAloneTest(Plain):
         task.lines.append(('ann', f'TEST PASS {changed} `true`'))
         with self.assertRaisesRegex(Refused, 'no reviewer PASS'):
             ship.publish(enabled, changed, task)
+        # The same change with different indentation has the same `git patch-id --stable`
+        # but is not what the reviewer saw.
+        self.run_('git', 'checkout', '-q', '-b', 'indented', previous, cwd=repo)
+        (repo / 'two.txt').write_text('  two.txt')
+        self.run_('git', 'commit', '-qam', 'indented', cwd=repo)
+        indented = self.run_('git', 'rev-parse', 'HEAD', cwd=repo).stdout.strip()
+        task.lines.append(('ann', f'TEST PASS {indented} `true`'))
+        with self.assertRaisesRegex(Refused, 'no reviewer PASS'):
+            ship.publish(enabled, indented, task)
         task.lines.insert(0, ('rae', f'PASS {"f" * 40}'))
         output = ship.publish(enabled, candidate, task)
         self.assertEqual(output, f'published\ncarried PASS from {previous} to {candidate}')

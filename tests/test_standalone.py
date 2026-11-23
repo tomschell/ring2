@@ -174,6 +174,24 @@ class ShipAloneTest(Plain):
         self.assertTrue(ship.test(settings, commit, 'test -f two.txt', notes, 'ann'))
         self.assertTrue(ship.tested(commit, notes, 'test -f two.txt'))
 
+    def test_a_branch_moving_during_the_test_leaves_no_result(self):
+        origin, repo, (base, head) = self.clone()
+        self.in_process()
+        settings = {'repo': str(repo), 'branch': 'trunk'}
+        notes = ship.GitNotes(settings, base)
+        move = f'git --git-dir={origin} fetch -q {repo} {head}:refs/heads/trunk'
+        with self.assertRaises(Refused) as refused:
+            ship.test(settings, base, move, notes, 'ann')
+        self.assertEqual(str(refused.exception),
+                         f'ring2: not tested: origin trunk moved to {head} while the test ran; rebase onto it and test again')
+        self.assertEqual(notes.read(), [])
+        self.assertFalse(ship.tested(base, notes))
+        # A failed command still reports failure when the branch moves.
+        self.run_('git', '--git-dir', str(origin), 'update-ref', 'refs/heads/trunk', base)
+        self.assertFalse(ship.test(settings, base, move + '; echo FAILED; false', notes, 'ann'))
+        self.assertIn('FAILED', sys.stdout.getvalue())
+        self.assertEqual(notes.read(), [])
+
     def test_a_missing_remote_branch_does_not_prevent_testing(self):
         _, repo, (_, commit) = self.clone()
         self.in_process()

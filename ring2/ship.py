@@ -108,6 +108,13 @@ def test(settings, commit, command, evidence, author):
         output.write_text('\n'.join(tail) + '\n' if tail else '')
         if code:
             print('\n'.join(tail + [f'(the last {len(tail)} lines of output; kept in {output} until the next test)']))
+        if git(settings, 'ls-remote', remote, f'refs/heads/{branch}'):
+            git(settings, 'fetch', '--quiet', remote, branch)
+            head = full(settings, 'FETCH_HEAD')
+            if git(settings, 'merge-base', '--is-ancestor', head, commit, check=False).returncode:
+                if code:
+                    return False
+                raise Refused(f'ring2: not tested: {remote} {branch} moved to {head} while the test ran; rebase onto it and test again')
         result = 'PASS' if code == 0 else f'FAIL (exit {code})'
         # Each execution is its own line, so the same outcome after a different one is recorded again.
         line = f'TEST {result} {commit} `{command}` (run {datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%S.%fZ})'

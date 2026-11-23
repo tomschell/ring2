@@ -173,6 +173,7 @@ command is given. Use one receiver per label. The channel setup is verified with
 
 ## Known gaps
 
+- The bus does not check who sent a message; anything that can reach its port can post as any role. Keep it on loopback inside the machine the agents use.
 - An outside role's state comes from what the bus last heard from its listener, so a listener that has gone quiet shows as `silent`, not dead, and the bus forgets all of it when it restarts.
 - Typing in an attached Codex viewer during a channel turn can drop the channel request (3/3 trials). Watching, or typing while idle, was unaffected.
 - `test` and `publish` do not check task ownership; `close` refuses only another holder.

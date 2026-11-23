@@ -21,7 +21,7 @@ PAGE = '''<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="ref
 <title>ring2</title><style>:root{{color-scheme:dark}}body{{font:14px monospace;margin:2em}}td,th{{padding:2px 12px;text-align:left}}
 .dead{{color:#ff6b6b;font-weight:bold}}</style></head><body>
 <h1>ring2</h1><p>{now}</p>
-<table><tr><th>role</th><th>session</th><th>delivery</th><th>task</th><th>last activity</th><th>waiting</th></tr>
+<table><tr><th>role</th><th>provider / model</th><th>session</th><th>delivery</th><th>task</th><th>last activity</th><th>waiting</th></tr>
 {rows}</table>
 <h2>bus</h2><table><tr><th>sequence</th><th>time</th><th>channel</th><th>sender</th><th>message</th></tr>{messages}</table>{problem}</body></html>'''
 
@@ -49,10 +49,13 @@ def page(cfg, refresh=5):
     now, problem, rows, messages = time.time(), '', [], []
     try:
         for row in app.status(cfg):
+            entry = cfg.get('roles', {}).get(row['label'], {})
+            provider_model = ' '.join(str(entry[key]) for key in ('provider', 'model') if entry.get(key))
             age = f'{int(now - row["active"])} s ago ({row["active_source"]})' if 'active' in row else 'unknown'
             outside = row.get('external')
             heard = html.escape(app.heard_text(row)) if outside else ''
             rows.append(f'<tr id="{html.escape(row["label"])}"><td>{colored_name(row["label"])} ({html.escape(str(row["role"]))})</td>'
+                        f'<td>{html.escape(provider_model)}</td>'
                         f'{f"<td>{heard}</td>" * 2 if outside else alive(row["session"]) + alive(row["loop"])}<td>{html.escape(" ".join(row.get("tasks", [])) or "-")}</td>'
                         f'<td>{"-" if outside else age}</td><td>{app.waiting(row)}</td></tr>')
         if cfg.get('ring_url') and cfg.get('channels'):

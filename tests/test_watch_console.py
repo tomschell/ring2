@@ -23,6 +23,23 @@ ROLE = 'watched'
 
 
 class ConsoleMessagesTest(unittest.TestCase):
+    def test_role_provider_and_model_from_config_are_escaped(self):
+        cfg = {'roles': {'worker': {'provider': 'codex', 'model': 'gpt-6.1-sol'},
+                         'outside': {'provider': 'external'},
+                         'escaped': {'provider': '<provider&>', 'model': '"model<"'}}}
+        rows = [{'label': label, 'role': 'implementer', 'session': False, 'loop': False}
+                for label in cfg['roles']]
+        rows[1]['external'] = True
+        rows[1]['heard'] = 'not heard from'
+        with patch.object(console.app, 'status', return_value=rows):
+            page = console.page(cfg)
+        self.assertIn('<th>role</th><th>provider / model</th><th>session</th>', page)
+        cells = [re.findall(r'<td[^>]*>(.*?)</td>', row)
+                 for row in re.findall(r'<tr id="[^"]+">(.*?)</tr>', page)]
+        self.assertEqual([row[1] for row in cells], ['codex gpt-6.1-sol', 'external',
+                         '&lt;provider&amp;&gt; &quot;model&lt;&quot;'])
+        self.assertEqual(cells[1][2:4], ['not heard from', 'not heard from'])
+
     def test_name_colors_are_distinct_and_repeatable(self):
         rows = [{'label': 'coord', 'role': 'coordinator', 'session': False, 'loop': False}]
         messages = [{'sequence': number, 'created_at': 'now', 'channel': 'team',
@@ -95,7 +112,7 @@ class WatchConsoleTest(unittest.TestCase):
         self.background('ring2.console', '--port', str(self.port))
         wait('the console', lambda: self.safe_row())
         self.assertIn('color-scheme:dark', self.page_text())
-        self.assertEqual(self.row()[:4], [f'{ROLE} (implementer)', 'alive', 'alive', task])
+        self.assertEqual(self.row()[:5], [f'{ROLE} (implementer)', 'codex ' + lab.settings['roles'][ROLE]['model'], 'alive', 'alive', task])
         healthy = self.status()
         self.assertEqual((healthy['session'], healthy['loop'], healthy['tasks']), (True, True, [task]))
         self.assertIn(f'{ROLE}: session alive, loop alive, tasks {task}', lab.ring2('status').stdout)
@@ -109,13 +126,13 @@ class WatchConsoleTest(unittest.TestCase):
         waiting = lab.post(f'@{ROLE} WAITING-FOR-A-DEAD-RUNNER')
         dead = self.status()
         self.assertEqual((dead['loop'], dead['delivered'], dead['addressed']), (False, first, waiting))
-        self.assertEqual(self.row()[2], 'dead')
+        self.assertEqual(self.row()[3], 'dead')
         time.sleep(3)
         self.assertEqual(lab.requests_with('WAITING-FOR-A-DEAD-RUNNER'), [], 'nothing delivers it without watch')
 
         self.background('ring2.watch', '--interval', '1', '--backoff', '600')
         wait('watch to restart the role and the message to arrive', lambda: lab.requests_with('WAITING-FOR-A-DEAD-RUNNER'))
-        wait('the console to show it alive', lambda: self.row()[1:3] == ['alive', 'alive'])
+        wait('the console to show it alive', lambda: self.row()[2:4] == ['alive', 'alive'])
         wait('the cursor to pass the waiting message', lambda: self.status()['delivered'] >= waiting)
         said = [message['message'] for message in lab.messages() if message['message'].startswith('watch: ')]
         self.assertEqual(said, [f'watch: restarted {ROLE}; its delivery was not running and message {waiting} '

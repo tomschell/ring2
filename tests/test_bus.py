@@ -69,6 +69,8 @@ class BrowserRequestTest(unittest.TestCase):
     def test_foreign_host_is_refused(self):
         self.assertEqual(self.post(host='evil.example'), 403)
         self.assertEqual(self.post(host='evil.example:8770'), 403)
+        self.assertEqual(self.post(host='[::1].evil.example'), 403)
+        self.assertEqual(self.post(host='localhost.evil.example:8770'), 403)
 
 
 if __name__ == '__main__':

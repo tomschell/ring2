@@ -28,6 +28,7 @@ import contextlib
 import datetime as dt
 import json
 import os
+import re
 import sqlite3
 import stat
 import threading
@@ -228,7 +229,7 @@ class RingApp:
                 self.changed.wait(remaining)
 
 
-LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]")
+LOOPBACK_AUTHORITY = re.compile(r"(127\.0\.0\.1|localhost|\[::1\])(:[0-9]+)?", re.IGNORECASE)
 
 
 class RingHandler(BaseHTTPRequestHandler):
@@ -261,9 +262,7 @@ class RingHandler(BaseHTTPRequestHandler):
         """Refuse a request whose Host is not loopback when the bus binds only to loopback."""
         if not self.server.local_only:  # type: ignore[attr-defined]
             return True
-        host = self.headers.get("Host", "").strip().lower()
-        host = host[: host.index("]") + 1] if host.startswith("[") and "]" in host else host.partition(":")[0]
-        if host in LOOPBACK_HOSTS:
+        if LOOPBACK_AUTHORITY.fullmatch(self.headers.get("Host", "").strip()):
             return True
         self._error(HTTPStatus.FORBIDDEN, "host not allowed")
         return False

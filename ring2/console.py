@@ -35,6 +35,16 @@ def colored_name(name):
     return f'<span style="color:hsl({hue},65%,70%)">{html.escape(name)}</span>' if name else ""
 
 
+def colored_message(text):
+    parts, end = [], 0
+    for match in re.finditer(r'(?<![\w@])@([A-Za-z0-9_-]+)(?![\w-])', text):
+        parts.append(html.escape(text[end:match.start()]))
+        parts.append(colored_name(match[1]).replace('>', '>@', 1))
+        end = match.end()
+    parts.append(html.escape(text[end:]))
+    return ''.join(parts)
+
+
 def page(cfg, refresh=5):
     now, problem, rows, messages = time.time(), '', [], []
     try:
@@ -51,7 +61,7 @@ def page(cfg, refresh=5):
                 if not separator or not re.fullmatch(r'[A-Za-z0-9_-]+', sender):
                     sender, text = '', message['message']
                 messages.append(f'<tr><td>{message["sequence"]}</td><td>{html.escape(message["created_at"])}</td>'
-                                f'<td>{html.escape(message["channel"])}</td><td>{colored_name(sender)}</td><td>{html.escape(text)}</td></tr>')
+                                f'<td>{html.escape(message["channel"])}</td><td>{colored_name(sender)}</td><td>{colored_message(text)}</td></tr>')
     except (OSError, SystemExit) as exc:
         problem = f'<p class="dead">could not read: {html.escape(str(exc))}</p>'
     return PAGE.format(refresh=refresh, now=time.strftime('%Y-%m-%d %H:%M:%S %Z', time.localtime(now)),

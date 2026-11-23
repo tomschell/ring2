@@ -36,6 +36,15 @@ class ConsoleMessagesTest(unittest.TestCase):
         self.assertNotEqual(names[0][0], names[1][0])
         self.assertIn('<td class="dead">dead</td>', page)
 
+    def test_message_addresses_use_sender_colors_and_escape_text(self):
+        messages = [{'sequence': 1, 'created_at': 'now', 'channel': 'team',
+                     'message': 'coord: @coord, @imp1 <hello> x@imp1 path@coord & "quoted"'}]
+        with patch.object(console.app, 'status', return_value=[]), patch.object(console.bus, 'events', return_value=messages):
+            page = console.page({'ring_url': 'unused', 'channels': ['team']})
+        coord = console.colored_name('coord').replace('>', '>@', 1)
+        imp1 = console.colored_name('imp1').replace('>', '>@', 1)
+        self.assertIn(f'<td>{coord}, {imp1} &lt;hello&gt; x@imp1 path@coord &amp; &quot;quoted&quot;</td>', page)
+
     def test_newest_twenty_and_single_label_senders(self):
         messages = [{'sequence': number, 'created_at': 'now', 'channel': 'team',
                      'message': f'agent-_{number}: message {number}'} for number in range(1, 23)]
@@ -47,7 +56,7 @@ class ConsoleMessagesTest(unittest.TestCase):
         rows = re.findall(r'<tr><td>(.*?)</tr>', page)
         cells = [re.findall(r'<td>(.*?)</td>', '<td>' + row) for row in rows]
         self.assertEqual([int(row[0]) for row in cells], list(range(22, 2, -1)))
-        self.assertEqual(cells[0][3:], ['', '@coord controller: two tasks are queued'])
+        self.assertEqual(cells[0][3:], ['', console.colored_name('coord').replace('>', '>@', 1) + ' controller: two tasks are queued'])
         self.assertEqual(cells[1][3:], ['', 'no sender here'])
         self.assertEqual(cells[2][3:], ['', 'bad.label: keep the whole text'])
         self.assertEqual(cells[3][3:], [console.colored_name('agent-_19'), 'message 19'])

@@ -72,7 +72,7 @@ def write_handle(settings, state):
 def _processes():
     """{pid: (parent pid, start time, command line)} for every process."""
     table = {}
-    for line in subprocess.run(['ps', '-axo', 'pid=,ppid=,lstart=,command='],
+    for line in subprocess.run(['ps', '-ww', '-axo', 'pid=,ppid=,lstart=,command='],
                                capture_output=True, text=True).stdout.splitlines():
         fields = line.split(None, 7)
         if len(fields) == 8:

@@ -28,7 +28,7 @@ def running(settings, name, kind):
     state = read_handle(settings, name) or {}
     if state.get('kind') != kind or not state.get('pid'):
         return False
-    command = subprocess.run(['ps', '-p', str(state['pid']), '-o', 'command='],
+    command = subprocess.run(['ps', '-ww', '-p', str(state['pid']), '-o', 'command='],
                              capture_output=True, text=True).stdout
     return state['token'] in command
 

@@ -67,8 +67,9 @@ python3 -m ring2 --config ring2.json fleet stop
 ```
 
 Project rules for the agents belong in an `AGENTS.md` in your repository; both Codex and Claude
-Code read it. For a Claude Code role, use `"provider": "claude"` with a Claude model. Each part
-of ring2 also runs alone and prints its own usage. How it is put together, and its tests:
+Code read it. For a Claude Code role, use `"provider": "claude"` with a Claude model.
+For a Gemini CLI role, use `"provider": "gemini"` with a Gemini model.
+Each part of ring2 also runs alone and prints its own usage. How it is put together, and its tests:
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Settings

@@ -5,6 +5,7 @@ Replies use the ordinary ring2 post command; this server offers no tools.
 """
 import argparse
 import fcntl
+import http.client
 import json
 import sys
 import threading
@@ -36,7 +37,10 @@ def serve(settings, label):
             after = int(cursor.read_text())
             while not stopped.is_set():
                 try:
-                    messages = bus.events(settings, after, wait=1, label=label)
+                    try:
+                        messages = bus.events(settings, after, wait=1, label=label)
+                    except (http.client.HTTPException, ValueError) as exc:
+                        raise OSError(str(exc)) from exc
                     for message in messages:
                         if stopped.is_set():
                             return

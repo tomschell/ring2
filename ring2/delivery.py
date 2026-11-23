@@ -2,6 +2,7 @@
 The cursor passes a message only once started() is true. A restart replays
 messages beyond the cursor; a message can arrive twice, but is not lost.
 """
+import http.client
 import os
 import subprocess
 import time
@@ -46,7 +47,7 @@ def follow(source, wanted, target, cursor_path, log=print):
     while True:
         try:
             messages = source(sent, 2 if waiting else 25)
-        except OSError as exc:
+        except (OSError, http.client.HTTPException, ValueError) as exc:
             log(f'ring2 delivery: source unavailable ({exc}); retrying')
             time.sleep(2)
             continue

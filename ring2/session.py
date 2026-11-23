@@ -33,9 +33,9 @@ def running(settings, name, kind):
     return state['token'] in command
 
 
-def stop(settings, name, kind):
+def stop(settings, name, kind=None):
     state = read_handle(settings, name) or {}
-    return stop_processes([state['token']]) if state.get('kind') == kind else False
+    return stop_processes([state['token']]) if state.get('token') else False
 
 
 def start(settings, name, spec, provider):
@@ -52,8 +52,9 @@ def start(settings, name, spec, provider):
         stop(settings, name, provider.KIND)
         token = uuid.uuid4().hex
         # Save the token before launching anything, so an interrupted start can be stopped.
+        previous = read_handle(settings, name) or {}
         write_handle(settings, {'name': name, 'kind': provider.KIND, 'token': token,
-                                'thread': (read_handle(settings, name) or {}).get('thread')})
+                                'thread': previous.get('thread') if previous.get('kind') == provider.KIND else None})
         spec_path = state_dir / f'{name}.spec.json'
         spec_path.write_text(json.dumps({**spec, 'name': name, 'settings': settings}, indent=1))
         with open(state_dir / f'{name}.log', 'w') as log:

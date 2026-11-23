@@ -149,6 +149,7 @@ def start(cfg, label):
     entry = role(cfg, label)
     provider = adapter(cfg, label)
     if not hasattr(provider, 'run'):
+        stop(cfg, label)
         return
     need(entry, f'role {label}', 'role', 'provider', 'model')
     if entry.get('fresh_conversation'):
@@ -174,7 +175,7 @@ def start(cfg, label):
             'env': {'RING2_CONFIG': cfg['path'], 'RING2_ROLE': label}}
     previous = read_handle(cfg, label) or {}
     state = session.start(cfg, label, {
-        **spec, 'resume': entry.get('resume') and previous.get('thread'),
+        **spec, 'resume': entry.get('resume') and previous.get('kind') == provider.KIND and previous.get('thread'),
         'source': following and {'ring_url': cfg['ring_url'], 'channels': cfg['channels'], 'label': label,
                                  'cursor': str(cursor_path(cfg, label))}}, provider)
     print(f'started {label}: {provider.WORD} pid {state["pid"]}, thread {state["thread"]}')
@@ -184,6 +185,8 @@ def start(cfg, label):
 def stop(cfg, label):
     provider = adapter(cfg, label)
     if not hasattr(provider, 'run'):
+        if cfg.get('state_dir'):
+            session.stop(cfg, label)
         return
     print(f'stopped {label}' if session.stop(cfg, label, provider.KIND) else f'{label} is not running')
 

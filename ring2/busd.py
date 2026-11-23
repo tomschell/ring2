@@ -228,6 +228,9 @@ class RingApp:
                 self.changed.wait(remaining)
 
 
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]")
+
+
 class RingHandler(BaseHTTPRequestHandler):
     server_version = "Ring/0.1"
     # A peer that opens a connection and never finishes its request, or
@@ -254,7 +257,23 @@ class RingHandler(BaseHTTPRequestHandler):
     def _error(self, status: HTTPStatus, message: str) -> None:
         self._send(status, {"error": message})
 
+    def _local_only(self) -> bool:
+        """Refuse a request whose Host is not loopback when the bus binds only to loopback."""
+        if not self.server.local_only:  # type: ignore[attr-defined]
+            return True
+        host = self.headers.get("Host", "").strip().lower()
+        host = host[: host.index("]") + 1] if host.startswith("[") and "]" in host else host.partition(":")[0]
+        if host in LOOPBACK_HOSTS:
+            return True
+        self._error(HTTPStatus.FORBIDDEN, "host not allowed")
+        return False
+
     def do_POST(self) -> None:
+        if not self._local_only():
+            return
+        if self.headers.get("Content-Type", "").partition(";")[0].strip().lower() != "application/json":
+            self._error(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "content type must be application/json")
+            return
         parsed = urllib.parse.urlparse(self.path)
         prefix = "/channels/"
         if not parsed.path.startswith(prefix) or parsed.path == prefix:
@@ -278,6 +297,8 @@ class RingHandler(BaseHTTPRequestHandler):
         self._send(HTTPStatus.CREATED, {"message": result})
 
     def do_GET(self) -> None:
+        if not self._local_only():
+            return
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == '/capabilities' and not parsed.query:
             self._send(HTTPStatus.OK, {
@@ -324,6 +345,7 @@ class RingServer(ThreadingHTTPServer):
 
     def __init__(self, address: tuple[str, int], app: RingApp) -> None:
         super().__init__(address, RingHandler)
+        self.local_only = address[0] in ("127.0.0.1", "localhost", "::1")
         self.app = app
 
 

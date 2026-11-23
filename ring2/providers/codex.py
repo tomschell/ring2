@@ -86,7 +86,7 @@ class Rpc:
     def _fill(self):
         data = self.sock.recv(65536)
         if not data:
-            raise RpcError('the app-server closed the connection')
+            raise RuntimeError('the app-server closed the connection')
         self.buffer += data
 
     def _take(self, count):
@@ -122,7 +122,7 @@ class Rpc:
             if opcode == 9:
                 self._frame(payload, 10)
             elif opcode == 8:
-                raise RpcError('the app-server closed the connection')
+                raise RuntimeError('the app-server closed the connection')
             elif opcode in (0, 1):
                 text += payload
                 if first & 0x80:
@@ -144,8 +144,8 @@ class Rpc:
 class CodexTurns:
     """A session input for delivery.follow: one turn per message, never two at once."""
 
-    def __init__(self, rpc, thread):
-        self.rpc, self.thread, self.active = rpc, thread, set()
+    def __init__(self, rpc, thread, server):
+        self.rpc, self.thread, self.server, self.active = rpc, thread, server, set()
         self.refresh = None
 
     def own(self):
@@ -168,10 +168,17 @@ class CodexTurns:
     def send(self, text):
         """Start a turn with `text` once the thread is idle. Returns when the app-server
         reports the turn in progress: the message is in the thread."""
-        self._settle()
-        if self.refresh:
-            self.thread, text = self.refresh(self.thread, text)
-        turn = self.rpc.call('turn/start', {'threadId': self.thread, 'input': [{'type': 'text', 'text': text}]})
+        if self.server.poll() is not None:
+            raise RuntimeError('the app-server exited')
+        try:
+            self._settle()
+            if self.refresh:
+                self.thread, text = self.refresh(self.thread, text)
+            turn = self.rpc.call('turn/start', {'threadId': self.thread, 'input': [{'type': 'text', 'text': text}]})
+        except OSError as exc:
+            if isinstance(exc, ConnectionError) or self.server.poll() is not None:
+                raise RuntimeError('the app-server exited or closed the connection') from exc
+            raise
         self.active.add(turn['turn']['id'])
         return 'started'
 
@@ -213,7 +220,7 @@ def run(spec_path, token):
         write_handle(settings, {'name': spec['name'], 'kind': 'headless', 'token': token, 'pid': os.getpid(),
                                 'server_pid': server.pid, 'endpoint': endpoint, 'thread': thread, 'codex': codex,
                                 'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())})
-        target = CodexTurns(rpc, thread)
+        target = CodexTurns(rpc, thread, server)
         target.send(f'{spec["prompt"]}\n(ring2 session {token})')
         if settings.get('roles', {}).get(spec['name'], {}).get('fresh_conversation'):
             from ring2 import app, tasks

@@ -23,6 +23,19 @@ ROLE = 'watched'
 
 
 class ConsoleMessagesTest(unittest.TestCase):
+    def test_name_colors_are_distinct_and_repeatable(self):
+        rows = [{'label': 'coord', 'role': 'coordinator', 'session': False, 'loop': False}]
+        messages = [{'sequence': number, 'created_at': 'now', 'channel': 'team',
+                     'message': f'{sender}: hello'}
+                    for number, sender in enumerate(('coord', 'outsider'), 1)]
+        with patch.object(console.app, 'status', return_value=rows), patch.object(console.bus, 'events', return_value=messages):
+            page = console.page({'ring_url': 'unused', 'channels': ['team']})
+        names = re.findall(r'<span style="color:([^"]+)">([^<]+)</span>', page)
+        self.assertEqual([name for color, name in names], ['coord', 'outsider', 'coord'])
+        self.assertEqual(names[0][0], names[2][0])
+        self.assertNotEqual(names[0][0], names[1][0])
+        self.assertIn('<td class="dead">dead</td>', page)
+
     def test_newest_twenty_and_single_label_senders(self):
         messages = [{'sequence': number, 'created_at': 'now', 'channel': 'team',
                      'message': f'agent-_{number}: message {number}'} for number in range(1, 23)]
@@ -37,7 +50,7 @@ class ConsoleMessagesTest(unittest.TestCase):
         self.assertEqual(cells[0][3:], ['', '@coord controller: two tasks are queued'])
         self.assertEqual(cells[1][3:], ['', 'no sender here'])
         self.assertEqual(cells[2][3:], ['', 'bad.label: keep the whole text'])
-        self.assertEqual(cells[3][3:], ['agent-_19', 'message 19'])
+        self.assertEqual(cells[3][3:], [console.colored_name('agent-_19'), 'message 19'])
 
 
 @unittest.skipUnless(HAVE_TOOLS, 'needs codex and bd')
@@ -60,7 +73,7 @@ class WatchConsoleTest(unittest.TestCase):
         with urllib.request.urlopen(f'http://127.0.0.1:{self.port}/', timeout=30) as response:
             text = response.read().decode()
         found = re.search(rf'<tr id="{ROLE}">(.*?)</tr>', text, re.S)
-        return re.findall(r'<td[^>]*>(.*?)</td>', found.group(1)) if found else None
+        return [re.sub(r'<[^>]+>', '', cell) for cell in re.findall(r'<td[^>]*>(.*?)</td>', found.group(1))] if found else None
 
     def status(self):
         return json.loads(self.lab.ring2('status', '--json').stdout)[0]
@@ -100,7 +113,7 @@ class WatchConsoleTest(unittest.TestCase):
                                 f'was waiting (delivered up to {first})'])
         self.assertEqual(len(lab.requests_with('TAKEN-BEFORE-THE-DEATH')), 1, 'the delivered message is not sent again')
         self.assertNotEqual(json.loads(lab.ring2('status', label=ROLE).stdout)['state']['pid'], healthy_pid)
-        self.assertIn('<td>watch</td><td>restarted', self.page_text())
+        self.assertIn(f'<td>{console.colored_name("watch")}</td><td>restarted', self.page_text())
 
         # Backoff: a second death straight away is not answered by a second restart.
         os.kill(json.loads(lab.ring2('status', label=ROLE).stdout)['state']['pid'], signal.SIGKILL)

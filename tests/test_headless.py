@@ -314,7 +314,7 @@ class OwnPostTest(unittest.TestCase):
         self.assertEqual(lab.requests_with('OWN-SELF-POST'), [])
         page = console.page(app.load(lab.config))
         self.assertIn('<th>sender</th>', page)
-        self.assertIn('<td>self-role</td><td>@self-role OWN-SELF-POST &lt;hello&gt;</td>', page)
+        self.assertIn(f'<td>{console.colored_name("self-role")}</td><td>@self-role OWN-SELF-POST &lt;hello&gt;</td>', page)
         sequence = lab.post('@self-role FROM-ANOTHER-SENDER')
         wait('other sender delivered', lambda: lab.requests_with('FROM-ANOTHER-SENDER'))
         wait('other post passed', lambda: int(cursor.read_text()) == sequence)

@@ -9,6 +9,7 @@ script, nothing stored. To view it from another machine, forward the port
 (for example with ssh -L); it must not be bound to a public address as it is.
 """
 import argparse
+import hashlib
 import html
 import re
 import time
@@ -29,6 +30,11 @@ def alive(flag):
     return '<td class="alive">alive</td>' if flag else '<td class="dead">dead</td>'
 
 
+def colored_name(name):
+    hue = int.from_bytes(hashlib.sha256(name.encode()).digest()[:4], "big") % 360
+    return f'<span style="color:hsl({hue},65%,70%)">{html.escape(name)}</span>' if name else ""
+
+
 def page(cfg, refresh=5):
     now, problem, rows, messages = time.time(), '', [], []
     try:
@@ -36,7 +42,7 @@ def page(cfg, refresh=5):
             age = f'{int(now - row["active"])} s ago ({row["active_source"]})' if 'active' in row else 'unknown'
             outside = row.get('external')
             heard = html.escape(app.heard_text(row)) if outside else ''
-            rows.append(f'<tr id="{html.escape(row["label"])}"><td>{html.escape(row["label"])} ({html.escape(str(row["role"]))})</td>'
+            rows.append(f'<tr id="{html.escape(row["label"])}"><td>{colored_name(row["label"])} ({html.escape(str(row["role"]))})</td>'
                         f'{f"<td>{heard}</td>" * 2 if outside else alive(row["session"]) + alive(row["loop"])}<td>{html.escape(" ".join(row.get("tasks", [])) or "-")}</td>'
                         f'<td>{"-" if outside else age}</td><td>{app.waiting(row)}</td></tr>')
         if cfg.get('ring_url') and cfg.get('channels'):
@@ -45,7 +51,7 @@ def page(cfg, refresh=5):
                 if not separator or not re.fullmatch(r'[A-Za-z0-9_-]+', sender):
                     sender, text = '', message['message']
                 messages.append(f'<tr><td>{message["sequence"]}</td><td>{html.escape(message["created_at"])}</td>'
-                                f'<td>{html.escape(message["channel"])}</td><td>{html.escape(sender)}</td><td>{html.escape(text)}</td></tr>')
+                                f'<td>{html.escape(message["channel"])}</td><td>{colored_name(sender)}</td><td>{html.escape(text)}</td></tr>')
     except (OSError, SystemExit) as exc:
         problem = f'<p class="dead">could not read: {html.escape(str(exc))}</p>'
     return PAGE.format(refresh=refresh, now=time.strftime('%Y-%m-%d %H:%M:%S %Z', time.localtime(now)),

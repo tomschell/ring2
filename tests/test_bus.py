@@ -29,6 +29,8 @@ class PostAddressTest(unittest.TestCase):
         with patch.object(app, 'load', return_value=cfg), patch.object(app.bus, 'post') as post:
             with self.assertRaisesRegex(Refused, '^ring2: address a role as @rev$'):
                 app.main(['--as', 'imp', 'post', 'team', 'rev: please review'])
+            with self.assertRaisesRegex(Refused, '^ring2: address a role as @rev$'):
+                app.main(['--as', 'imp', 'post', 'team', 'rev: please review the fix from @imp'])
             post.assert_not_called()
             with patch('builtins.print'):
                 post.return_value = {}

@@ -76,14 +76,12 @@ class TasksAloneTest(Plain):
 
 
 class ShipAloneTest(Plain):
-    def test_pass_carries_only_an_unchanged_patch_in_the_same_evidence_store(self):
+    def test_a_rebased_commit_needs_its_own_pass(self):
         from tests.test_evidence import Lines
-        from ring2.app import TaskEvidence
 
         _, repo, (base, previous) = self.clone()
         self.in_process()
-        settings = {'repo': str(repo), 'branch': 'trunk', 'reviewers': ['rae']}
-        # Move the published branch independently, then replay the task's change.
+        settings = {'repo': str(repo), 'branch': 'trunk', 'reviewers': ['rae'], 'pass_carries_rebase': True}
         self.run_('git', 'checkout', '-q', '-b', 'landed', base, cwd=repo)
         (repo / 'landed.txt').write_text('another task\n')
         self.run_('git', 'add', '.', cwd=repo)
@@ -91,37 +89,11 @@ class ShipAloneTest(Plain):
         self.run_('git', 'push', '-q', 'origin', 'HEAD:trunk', cwd=repo)
         self.run_('git', 'cherry-pick', previous, cwd=repo)
         candidate = self.run_('git', 'rev-parse', 'HEAD', cwd=repo).stdout.strip()
-        task = Lines(('rae', f'PASS {previous}'), ('ann', f'TEST PASS {previous} `true`'))
-        with self.assertRaisesRegex(Refused, 'no passing test'):
-            ship.publish(dict(settings, pass_carries_rebase=True), candidate, task)
-        task.lines.append(('ann', f'TEST PASS {candidate} `true`'))
-        with self.assertRaisesRegex(Refused, 'no reviewer PASS'):
+        task = Lines(('rae', f'PASS {previous}'), ('ann', f'TEST PASS {candidate} `true`'))
+        with self.assertRaisesRegex(Refused, f'no reviewer PASS for {candidate}'):
             ship.publish(settings, candidate, task)
-        enabled = dict(settings, pass_carries_rebase=True)
-        # A PASS on a different task with the same patch is outside this store.
-        comments = {'other': [('rae', f'PASS {previous}')],
-                    'this': [('ann', f'TEST PASS {candidate} `true`')]}
-        with mock.patch('ring2.app.tasks.comments', side_effect=lambda cfg, task: comments[task]):
-            with self.assertRaisesRegex(Refused, 'no reviewer PASS'):
-                ship.publish(enabled, candidate, TaskEvidence({}, 'this'))
-        (repo / 'two.txt').write_text('two.txt\nextra line\n')
-        self.run_('git', 'commit', '-qam', 'extra line', cwd=repo)
-        changed = self.run_('git', 'rev-parse', 'HEAD', cwd=repo).stdout.strip()
-        task.lines.append(('ann', f'TEST PASS {changed} `true`'))
-        with self.assertRaisesRegex(Refused, 'no reviewer PASS'):
-            ship.publish(enabled, changed, task)
-        # The same change with different indentation has the same `git patch-id --stable`
-        # but is not what the reviewer saw.
-        self.run_('git', 'checkout', '-q', '-b', 'indented', previous, cwd=repo)
-        (repo / 'two.txt').write_text('  two.txt')
-        self.run_('git', 'commit', '-qam', 'indented', cwd=repo)
-        indented = self.run_('git', 'rev-parse', 'HEAD', cwd=repo).stdout.strip()
-        task.lines.append(('ann', f'TEST PASS {indented} `true`'))
-        with self.assertRaisesRegex(Refused, 'no reviewer PASS'):
-            ship.publish(enabled, indented, task)
-        task.lines.insert(0, ('rae', f'PASS {"f" * 40}'))
-        output = ship.publish(enabled, candidate, task)
-        self.assertEqual(output, f'published\ncarried PASS from {previous} to {candidate}')
+        task.lines.append(('rae', f'PASS {candidate}'))
+        self.assertEqual(ship.publish(settings, candidate, task), 'published')
 
     def clone(self):
         """(origin, repo, commits): a bare origin holding the first of two commits made in its clone."""

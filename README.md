@@ -102,7 +102,6 @@ App JSON keys unless marked otherwise; role fields belong inside each role. Serv
 | `test_command` | unset | Required test command; override must match. |
 | `test_required` | true | Require candidate test PASS; standalone --no-test disables. |
 | `review_required` | true | Require reviewer PASS; standalone --no-review disables. |
-| `pass_carries_rebase` | false | Same-task PASS for identical stable patch ID; standalone --pass-carries-rebase. |
 | `repo` | role workdir in the app; required standalone | Standalone ship repository. |
 | `reviewers` | app's reviewer roles; empty standalone | Standalone reviewer labels; app uses reviewer roles. |
 | `sessions` | empty map | Standalone sessions by name. |
@@ -190,5 +189,3 @@ command is given. Use one receiver per label. The channel setup is verified with
 - bd leases last five minutes; ring2 neither renews nor reclaims; expiry behaviour is untested.
 - Later objections do not revoke PASS.
 - Codex session files grow without pruning.
-
-With `pass_carries_rebase`, the reviewer has not seen the change on its new base; only rerun tests cover integration.

@@ -4,8 +4,9 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from ring2 import app, busd
+from ring2 import Refused, app, busd
 from ring2.bus import addressed
 
 
@@ -20,6 +21,19 @@ class StatusTextTest(unittest.TestCase):
         self.assertTrue(self.line(delivered=12, addressed=14).endswith(', waiting: yes'))
         self.assertTrue(self.line().endswith(', waiting: no'))   # no bus, or no cursor yet
         self.assertNotIn('14', self.line(delivered=12, addressed=14))
+
+
+class PostAddressTest(unittest.TestCase):
+    def test_leading_role_requires_at_sign(self):
+        cfg = {'roles': {'imp': {}, 'rev': {}}}
+        with patch.object(app, 'load', return_value=cfg), patch.object(app.bus, 'post') as post:
+            with self.assertRaisesRegex(Refused, '^ring2: address a role as @rev$'):
+                app.main(['--as', 'imp', 'post', 'team', 'rev: please review'])
+            post.assert_not_called()
+            with patch('builtins.print'):
+                post.return_value = {}
+                app.main(['--as', 'imp', 'post', 'team', '@rev: please review'])
+            post.assert_called_once_with(cfg, 'team', 'imp: @rev: please review')
 
 
 class AddressedTest(unittest.TestCase):

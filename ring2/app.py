@@ -326,6 +326,11 @@ def main(argv=None):
         if not label:
             raise Refused('ring2: name the sender with --as')
         channel, text = args
+        names = cfg.get('roles', {})
+        if not any(bus.addressed(name, ' ' + text) for name in names):
+            for name in names:
+                if text.startswith(f'{name}:'):
+                    raise Refused(f'ring2: address a role as @{name}')
         print(json.dumps(bus.post(cfg, channel, f'{label}: {text}')))
     elif command == 'start':
         start(cfg, label)

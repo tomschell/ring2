@@ -80,7 +80,7 @@ def run(spec_path, token):
             '--output-format', 'stream-json', '--verbose', '--replay-user-messages',
             '--permission-mode', 'bypassPermissions', '--strict-mcp-config',
             '--mcp-config', '{"mcpServers":{}}', '--setting-sources', '', '--no-chrome',
-            '--disallowedTools', 'mcp__*', '--model', spec['model'],
+            '--disallowedTools', 'mcp__*', 'SendMessage', 'Agent', 'Task', '--model', spec['model'],
             '--append-system-prompt', f'(ring2 session {token})',
             '--resume' if spec.get('resume') else '--session-id', thread]
     env = {**os.environ, **settings.get('env', {}), **spec.get('env', {}),

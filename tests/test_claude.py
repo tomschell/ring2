@@ -6,12 +6,29 @@ import shutil
 import signal
 import sys
 import threading
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+from ring2.providers import claude
 
 from tests.lab import HAVE_TOOLS, REPO, Lab, alive, wait
 from tests.mock_claude import MockClaude
 from tests.mock_model import MockModel
+
+
+class ClaudeCommandTest(unittest.TestCase):
+    def test_start_disallows_builtin_agent_tools(self):
+        with tempfile.TemporaryDirectory() as directory:
+            spec = Path(directory) / 'spec.json'
+            spec.write_text(json.dumps({'settings': {}, 'model': 'test', 'workdir': directory}))
+            with patch.object(claude.subprocess, 'Popen', side_effect=RuntimeError('stop')) as start:
+                with self.assertRaisesRegex(RuntimeError, 'stop'):
+                    claude.run(spec, 'token')
+            argv = start.call_args.args[0]
+            denied = argv[argv.index('--disallowedTools') + 1:argv.index('--model')]
+            self.assertEqual(denied, ['mcp__*', 'SendMessage', 'Agent', 'Task'])
 
 
 @unittest.skipUnless(HAVE_TOOLS and shutil.which('claude'), 'needs claude, codex and bd')
